@@ -7,3 +7,7 @@ databaseChangeLog:
       file: db/changelog/changes/003-add-category-id-to-products.sql
   - include:
       file: db/changelog/changes/004-add-category-name-to-products.sql
+  - include:
+      file: db/changelog/changes/005-create-option-template-groups-table.sql
+  - include:
+      file: db/changelog/changes/006-create-option-template-values-table.sql
