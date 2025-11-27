@@ -4,8 +4,8 @@ spring:
   # 資料庫設定 (連接到 mh-dev-api-test-1-mysql 容器)
   datasource:
     url: jdbc:mysql://mh-dev-api-test-1-mysql:3306/erp_db?useSSL=false&serverTimezone=Asia/Taipei&allowPublicKeyRetrieval=true
-    username: test_user
-    password: test_password_2024
+    username: morning_harvest_user
+    password: morning_harvest_dev_password_2024
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # Liquibase 設定
