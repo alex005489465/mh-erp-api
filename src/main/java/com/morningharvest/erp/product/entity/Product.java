@@ -31,6 +31,12 @@ public class Product {
     @Column(name = "image_url", length = 500)
     private String imageUrl;
 
+    @Column(name = "category_id")
+    private Long categoryId;
+
+    @Column(name = "category_name", length = 50)
+    private String categoryName;
+
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;

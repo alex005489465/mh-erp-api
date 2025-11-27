@@ -7,6 +7,8 @@ import com.morningharvest.erp.product.dto.CreateProductRequest;
 import com.morningharvest.erp.product.dto.ProductDTO;
 import com.morningharvest.erp.product.dto.UpdateProductRequest;
 import com.morningharvest.erp.product.entity.Product;
+import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.repository.ProductCategoryRepository;
 import com.morningharvest.erp.product.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,21 +41,32 @@ class ProductServiceTest {
     @Mock
     private ProductRepository productRepository;
 
+    @Mock
+    private ProductCategoryRepository productCategoryRepository;
+
     @InjectMocks
     private ProductService productService;
 
     private Product testProduct;
+    private ProductCategory testCategory;
     private CreateProductRequest createRequest;
     private UpdateProductRequest updateRequest;
 
     @BeforeEach
     void setUp() {
+        testCategory = ProductCategory.builder()
+                .id(1L)
+                .name("測試分類")
+                .isActive(true)
+                .build();
+
         testProduct = Product.builder()
                 .id(1L)
                 .name("測試商品")
                 .description("測試說明")
                 .price(new BigDecimal("50.00"))
                 .imageUrl("http://example.com/test.jpg")
+                .categoryId(null)
                 .isActive(true)
                 .sortOrder(1)
                 .createdAt(LocalDateTime.now())
@@ -64,6 +78,7 @@ class ProductServiceTest {
                 .description("新商品說明")
                 .price(new BigDecimal("60.00"))
                 .imageUrl("http://example.com/new.jpg")
+                .categoryId(null)
                 .sortOrder(2)
                 .build();
 
@@ -73,12 +88,13 @@ class ProductServiceTest {
                 .description("更新說明")
                 .price(new BigDecimal("70.00"))
                 .imageUrl("http://example.com/updated.jpg")
+                .categoryId(null)
                 .sortOrder(3)
                 .build();
     }
 
     @Test
-    @DisplayName("建立商品 - 成功")
+    @DisplayName("建立商品 - 成功（無分類）")
     void createProduct_Success() {
         // Given
         when(productRepository.existsByName(anyString())).thenReturn(false);
@@ -97,8 +113,87 @@ class ProductServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.getName()).isEqualTo(createRequest.getName());
         assertThat(result.getPrice()).isEqualByComparingTo(createRequest.getPrice());
+        assertThat(result.getCategoryId()).isNull();
         verify(productRepository).existsByName(createRequest.getName());
         verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("建立商品 - 帶分類成功")
+    void createProduct_WithCategory_Success() {
+        // Given - 前端同時傳入 categoryId 和 categoryName
+        createRequest.setCategoryId(1L);
+        createRequest.setCategoryName("測試分類");
+        when(productRepository.existsByName(anyString())).thenReturn(false);
+        when(productCategoryRepository.findById(1L)).thenReturn(Optional.of(testCategory));
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> {
+            Product p = invocation.getArgument(0);
+            p.setId(1L);
+            p.setCreatedAt(LocalDateTime.now());
+            p.setUpdatedAt(LocalDateTime.now());
+            // categoryName 由前端傳入
+            assertThat(p.getCategoryName()).isEqualTo("測試分類");
+            return p;
+        });
+
+        // When
+        ProductDTO result = productService.createProduct(createRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getCategoryId()).isEqualTo(1L);
+        assertThat(result.getCategoryName()).isEqualTo("測試分類");
+        verify(productCategoryRepository).findById(1L);
+    }
+
+    @Test
+    @DisplayName("建立商品 - 分類不存在拋出例外")
+    void createProduct_CategoryNotFound_ThrowsException() {
+        // Given
+        createRequest.setCategoryId(999L);
+        createRequest.setCategoryName("不存在的分類");
+        when(productRepository.existsByName(anyString())).thenReturn(false);
+        when(productCategoryRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> productService.createProduct(createRequest))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("商品分類不存在");
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("建立商品 - 分類名稱不一致拋出例外")
+    void createProduct_CategoryNameMismatch_ThrowsException() {
+        // Given
+        createRequest.setCategoryId(1L);
+        createRequest.setCategoryName("錯誤的分類名稱");
+        when(productRepository.existsByName(anyString())).thenReturn(false);
+        when(productCategoryRepository.findById(1L)).thenReturn(Optional.of(testCategory));
+
+        // When & Then
+        assertThatThrownBy(() -> productService.createProduct(createRequest))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("分類名稱不一致");
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("建立商品 - 只傳 categoryId 不傳 categoryName 拋出例外")
+    void createProduct_OnlyCategoryId_ThrowsException() {
+        // Given
+        createRequest.setCategoryId(1L);
+        createRequest.setCategoryName(null);
+        when(productRepository.existsByName(anyString())).thenReturn(false);
+
+        // When & Then
+        assertThatThrownBy(() -> productService.createProduct(createRequest))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("分類 ID 與名稱必須同時提供或同時為空");
+
+        verify(productRepository, never()).save(any());
     }
 
     @Test
@@ -131,6 +226,31 @@ class ProductServiceTest {
         assertThat(result).isNotNull();
         verify(productRepository).findById(1L);
         verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("更新商品 - 變更分類成功")
+    void updateProduct_ChangeCategory_Success() {
+        // Given - 前端同時傳入 categoryId 和 categoryName
+        updateRequest.setCategoryId(1L);
+        updateRequest.setCategoryName("測試分類");
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(productRepository.existsByNameAndIdNot(anyString(), anyLong())).thenReturn(false);
+        when(productCategoryRepository.findById(1L)).thenReturn(Optional.of(testCategory));
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> {
+            Product p = invocation.getArgument(0);
+            // 驗證 categoryName 由前端傳入
+            assertThat(p.getCategoryName()).isEqualTo("測試分類");
+            return p;
+        });
+
+        // When
+        ProductDTO result = productService.updateProduct(updateRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getCategoryName()).isEqualTo("測試分類");
+        verify(productCategoryRepository).findById(1L);
     }
 
     @Test
@@ -230,7 +350,7 @@ class ProductServiceTest {
         when(productRepository.findAll(any(Pageable.class))).thenReturn(productPage);
 
         // When
-        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, null);
+        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, null, null);
 
         // Then
         assertThat(result).isNotNull();
@@ -251,12 +371,59 @@ class ProductServiceTest {
         when(productRepository.findByIsActive(eq(true), any(Pageable.class))).thenReturn(productPage);
 
         // When
-        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, true);
+        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, true, null);
 
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getContent()).hasSize(1);
         verify(productRepository).findByIsActive(eq(true), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("分頁查詢商品 - 按分類篩選")
+    void listProducts_FilterByCategory() {
+        // Given
+        PageableRequest pageableRequest = PageableRequest.builder()
+                .page(1)
+                .size(10)
+                .build();
+
+        testProduct.setCategoryId(1L);
+        testProduct.setCategoryName("測試分類");  // 設定冗餘欄位
+        Page<Product> productPage = new PageImpl<>(List.of(testProduct));
+        when(productRepository.findByCategoryId(eq(1L), any(Pageable.class))).thenReturn(productPage);
+
+        // When
+        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, null, 1L);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getCategoryName()).isEqualTo("測試分類");
+        verify(productRepository).findByCategoryId(eq(1L), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("分頁查詢商品 - 按分類和上架狀態篩選")
+    void listProducts_FilterByCategoryAndIsActive() {
+        // Given
+        PageableRequest pageableRequest = PageableRequest.builder()
+                .page(1)
+                .size(10)
+                .build();
+
+        testProduct.setCategoryId(1L);
+        testProduct.setCategoryName("測試分類");  // 設定冗餘欄位
+        Page<Product> productPage = new PageImpl<>(List.of(testProduct));
+        when(productRepository.findByCategoryIdAndIsActive(eq(1L), eq(true), any(Pageable.class)))
+                .thenReturn(productPage);
+
+        // When
+        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, true, 1L);
+
+        // Then
+        assertThat(result).isNotNull();
+        verify(productRepository).findByCategoryIdAndIsActive(eq(1L), eq(true), any(Pageable.class));
     }
 
     @Test

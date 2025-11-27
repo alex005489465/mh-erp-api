@@ -3,3 +3,7 @@ databaseChangeLog:
       file: db/changelog/changes/001-create-products-table.sql
   - include:
       file: db/changelog/changes/002-create-product-categories-table.sql
+  - include:
+      file: db/changelog/changes/003-add-category-id-to-products.sql
+  - include:
+      file: db/changelog/changes/004-add-category-name-to-products.sql

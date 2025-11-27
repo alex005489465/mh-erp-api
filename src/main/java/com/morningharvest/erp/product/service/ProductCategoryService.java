@@ -2,12 +2,15 @@ package com.morningharvest.erp.product.service;
 
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.product.dto.CreateProductCategoryRequest;
 import com.morningharvest.erp.product.dto.ProductCategoryDTO;
 import com.morningharvest.erp.product.dto.UpdateProductCategoryRequest;
 import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.event.ProductCategoryUpdatedEvent;
 import com.morningharvest.erp.product.repository.ProductCategoryRepository;
+import com.morningharvest.erp.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -20,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductCategoryService {
 
     private final ProductCategoryRepository productCategoryRepository;
+    private final ProductRepository productRepository;
+    private final EventPublisher eventPublisher;
 
     @Transactional
     public ProductCategoryDTO createCategory(CreateProductCategoryRequest request) {
@@ -50,6 +55,9 @@ public class ProductCategoryService {
         ProductCategory category = productCategoryRepository.findById(request.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("商品分類不存在: " + request.getId()));
 
+        // 保存更新前的完整資料
+        ProductCategoryDTO beforeDTO = toDTO(category);
+
         // 驗證名稱不重複（排除自己）
         if (productCategoryRepository.existsByNameAndIdNot(request.getName(), request.getId())) {
             throw new IllegalArgumentException("分類名稱已存在: " + request.getName());
@@ -64,7 +72,15 @@ public class ProductCategoryService {
         ProductCategory saved = productCategoryRepository.save(category);
         log.info("商品分類更新成功, id: {}", saved.getId());
 
-        return toDTO(saved);
+        ProductCategoryDTO afterDTO = toDTO(saved);
+
+        // 發布事件（包含更新前後的完整資料）
+        eventPublisher.publish(
+            new ProductCategoryUpdatedEvent(beforeDTO, afterDTO),
+            "分類更新"
+        );
+
+        return afterDTO;
     }
 
     @Transactional
@@ -73,6 +89,11 @@ public class ProductCategoryService {
 
         if (!productCategoryRepository.existsById(id)) {
             throw new ResourceNotFoundException("商品分類不存在: " + id);
+        }
+
+        // 檢查分類下是否有商品
+        if (productRepository.existsByCategoryId(id)) {
+            throw new IllegalArgumentException("無法刪除分類，該分類下仍有商品");
         }
 
         productCategoryRepository.deleteById(id);

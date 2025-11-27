@@ -2,12 +2,15 @@ package com.morningharvest.erp.product.service;
 
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.product.dto.CreateProductCategoryRequest;
 import com.morningharvest.erp.product.dto.ProductCategoryDTO;
 import com.morningharvest.erp.product.dto.UpdateProductCategoryRequest;
 import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.event.ProductCategoryUpdatedEvent;
 import com.morningharvest.erp.product.repository.ProductCategoryRepository;
+import com.morningharvest.erp.product.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +40,12 @@ class ProductCategoryServiceTest {
 
     @Mock
     private ProductCategoryRepository productCategoryRepository;
+
+    @Mock
+    private ProductRepository productRepository;
+
+    @Mock
+    private EventPublisher eventPublisher;
 
     @InjectMocks
     private ProductCategoryService productCategoryService;
@@ -110,12 +119,16 @@ class ProductCategoryServiceTest {
     }
 
     @Test
-    @DisplayName("更新分類 - 成功")
+    @DisplayName("更新分類 - 成功並發布事件")
     void updateCategory_Success() {
         // Given
         when(productCategoryRepository.findById(1L)).thenReturn(Optional.of(testCategory));
         when(productCategoryRepository.existsByNameAndIdNot(anyString(), anyLong())).thenReturn(false);
-        when(productCategoryRepository.save(any(ProductCategory.class))).thenReturn(testCategory);
+        when(productCategoryRepository.save(any(ProductCategory.class))).thenAnswer(invocation -> {
+            ProductCategory c = invocation.getArgument(0);
+            c.setUpdatedAt(LocalDateTime.now());
+            return c;
+        });
 
         // When
         ProductCategoryDTO result = productCategoryService.updateCategory(updateRequest);
@@ -124,6 +137,39 @@ class ProductCategoryServiceTest {
         assertThat(result).isNotNull();
         verify(productCategoryRepository).findById(1L);
         verify(productCategoryRepository).save(any(ProductCategory.class));
+        // 驗證事件被發布
+        verify(eventPublisher).publish(any(ProductCategoryUpdatedEvent.class), eq("分類更新"));
+    }
+
+    @Test
+    @DisplayName("更新分類 - 事件包含正確的 before/after 資料")
+    void updateCategory_EventContainsCorrectData() {
+        // Given
+        String oldName = testCategory.getName();  // "測試分類"
+        String newName = updateRequest.getName(); // "更新分類"
+
+        when(productCategoryRepository.findById(1L)).thenReturn(Optional.of(testCategory));
+        when(productCategoryRepository.existsByNameAndIdNot(anyString(), anyLong())).thenReturn(false);
+        when(productCategoryRepository.save(any(ProductCategory.class))).thenAnswer(invocation -> {
+            ProductCategory c = invocation.getArgument(0);
+            c.setUpdatedAt(LocalDateTime.now());
+            return c;
+        });
+
+        // When
+        productCategoryService.updateCategory(updateRequest);
+
+        // Then - 使用 ArgumentCaptor 驗證事件內容
+        org.mockito.ArgumentCaptor<ProductCategoryUpdatedEvent> eventCaptor =
+                org.mockito.ArgumentCaptor.forClass(ProductCategoryUpdatedEvent.class);
+        verify(eventPublisher).publish(eventCaptor.capture(), eq("分類更新"));
+
+        ProductCategoryUpdatedEvent event = eventCaptor.getValue();
+        assertThat(event.getBefore().getName()).isEqualTo(oldName);
+        assertThat(event.getAfter().getName()).isEqualTo(newName);
+        assertThat(event.isNameChanged()).isTrue();
+        assertThat(event.getOldName()).isEqualTo(oldName);
+        assertThat(event.getNewName()).isEqualTo(newName);
     }
 
     @Test
@@ -159,6 +205,7 @@ class ProductCategoryServiceTest {
     void deleteCategory_Success() {
         // Given
         when(productCategoryRepository.existsById(1L)).thenReturn(true);
+        when(productRepository.existsByCategoryId(1L)).thenReturn(false);
         doNothing().when(productCategoryRepository).deleteById(1L);
 
         // When
@@ -166,7 +213,25 @@ class ProductCategoryServiceTest {
 
         // Then
         verify(productCategoryRepository).existsById(1L);
+        verify(productRepository).existsByCategoryId(1L);
         verify(productCategoryRepository).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("刪除分類 - 分類下有商品拋出例外")
+    void deleteCategory_HasProducts_ThrowsException() {
+        // Given
+        when(productCategoryRepository.existsById(1L)).thenReturn(true);
+        when(productRepository.existsByCategoryId(1L)).thenReturn(true);
+
+        // When & Then
+        assertThatThrownBy(() -> productCategoryService.deleteCategory(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("無法刪除分類，該分類下仍有商品");
+
+        verify(productCategoryRepository).existsById(1L);
+        verify(productRepository).existsByCategoryId(1L);
+        verify(productCategoryRepository, never()).deleteById(anyLong());
     }
 
     @Test

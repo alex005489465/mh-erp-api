@@ -32,6 +32,11 @@ public class CreateProductRequest {
     @Size(max = 500, message = "圖片網址不可超過 500 字元")
     private String imageUrl;
 
+    private Long categoryId;
+
+    @Size(max = 50, message = "分類名稱不可超過 50 字元")
+    private String categoryName;
+
     @Min(value = 0, message = "排序順序不可為負數")
     private Integer sortOrder;
 }

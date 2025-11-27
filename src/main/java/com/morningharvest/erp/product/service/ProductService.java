@@ -7,6 +7,8 @@ import com.morningharvest.erp.product.dto.CreateProductRequest;
 import com.morningharvest.erp.product.dto.ProductDTO;
 import com.morningharvest.erp.product.dto.UpdateProductRequest;
 import com.morningharvest.erp.product.entity.Product;
+import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.repository.ProductCategoryRepository;
 import com.morningharvest.erp.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ProductCategoryRepository productCategoryRepository;
 
     @Transactional
     public ProductDTO createProduct(CreateProductRequest request) {
@@ -30,11 +33,18 @@ public class ProductService {
             throw new IllegalArgumentException("商品名稱已存在: " + request.getName());
         }
 
+        // 驗證分類（如果有指定）
+        Long categoryId = request.getCategoryId();
+        String categoryName = request.getCategoryName();
+        validateCategory(categoryId, categoryName);
+
         Product product = Product.builder()
                 .name(request.getName())
                 .description(request.getDescription())
                 .price(request.getPrice())
                 .imageUrl(request.getImageUrl())
+                .categoryId(categoryId)
+                .categoryName(categoryName)
                 .sortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0)
                 .isActive(true)
                 .build();
@@ -57,10 +67,17 @@ public class ProductService {
             throw new IllegalArgumentException("商品名稱已存在: " + request.getName());
         }
 
+        // 驗證分類（如果有指定）
+        Long categoryId = request.getCategoryId();
+        String categoryName = request.getCategoryName();
+        validateCategory(categoryId, categoryName);
+
         product.setName(request.getName());
         product.setDescription(request.getDescription());
         product.setPrice(request.getPrice());
         product.setImageUrl(request.getImageUrl());
+        product.setCategoryId(categoryId);
+        product.setCategoryName(categoryName);
         if (request.getSortOrder() != null) {
             product.setSortOrder(request.getSortOrder());
         }
@@ -94,12 +111,17 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProductDTO> listProducts(PageableRequest pageableRequest, Boolean isActive) {
-        log.debug("查詢商品列表, page: {}, size: {}, isActive: {}",
-                pageableRequest.getPage(), pageableRequest.getSize(), isActive);
+    public PageResponse<ProductDTO> listProducts(PageableRequest pageableRequest, Boolean isActive, Long categoryId) {
+        log.debug("查詢商品列表, page: {}, size: {}, isActive: {}, categoryId: {}",
+                pageableRequest.getPage(), pageableRequest.getSize(), isActive, categoryId);
 
         Page<Product> productPage;
-        if (isActive != null) {
+
+        if (categoryId != null && isActive != null) {
+            productPage = productRepository.findByCategoryIdAndIsActive(categoryId, isActive, pageableRequest.toPageable());
+        } else if (categoryId != null) {
+            productPage = productRepository.findByCategoryId(categoryId, pageableRequest.toPageable());
+        } else if (isActive != null) {
             productPage = productRepository.findByIsActive(isActive, pageableRequest.toPageable());
         } else {
             productPage = productRepository.findAll(pageableRequest.toPageable());
@@ -137,6 +159,32 @@ public class ProductService {
         return toDTO(saved);
     }
 
+    /**
+     * 驗證分類 ID 與名稱的一致性
+     *
+     * @param categoryId   分類 ID（可為 null）
+     * @param categoryName 分類名稱（可為 null）
+     */
+    private void validateCategory(Long categoryId, String categoryName) {
+        // 兩者都為 null，表示無分類
+        if (categoryId == null && categoryName == null) {
+            return;
+        }
+
+        // 只有其中一個為 null，資料不一致
+        if (categoryId == null || categoryName == null) {
+            throw new IllegalArgumentException("分類 ID 與名稱必須同時提供或同時為空");
+        }
+
+        // 驗證分類是否存在，並檢查名稱是否一致
+        ProductCategory category = productCategoryRepository.findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("商品分類不存在: " + categoryId));
+
+        if (!category.getName().equals(categoryName)) {
+            throw new IllegalArgumentException("分類名稱不一致: 預期 " + category.getName() + "，收到 " + categoryName);
+        }
+    }
+
     private ProductDTO toDTO(Product product) {
         return ProductDTO.builder()
                 .id(product.getId())
@@ -144,6 +192,8 @@ public class ProductService {
                 .description(product.getDescription())
                 .price(product.getPrice())
                 .imageUrl(product.getImageUrl())
+                .categoryId(product.getCategoryId())
+                .categoryName(product.getCategoryName())  // 使用冗餘欄位
                 .isActive(product.getIsActive())
                 .sortOrder(product.getSortOrder())
                 .createdAt(product.getCreatedAt())

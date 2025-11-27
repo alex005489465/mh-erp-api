@@ -47,7 +47,7 @@ public class ProductController {
      * 分頁查詢商品列表
      */
     @GetMapping("/list")
-    @Operation(summary = "查詢商品列表", description = "分頁查詢商品，可篩選上架狀態")
+    @Operation(summary = "查詢商品列表", description = "分頁查詢商品，可篩選上架狀態和分類")
     public ApiResponse<PageResponse<ProductDTO>> listProducts(
             @Parameter(description = "頁碼 (從 1 開始)", example = "1")
             @RequestParam(value = "page", defaultValue = "1") Integer page,
@@ -62,9 +62,12 @@ public class ProductController {
             @RequestParam(value = "direction", defaultValue = "ASC") Sort.Direction direction,
 
             @Parameter(description = "上架狀態篩選 (true=上架, false=下架, 不傳=全部)")
-            @RequestParam(value = "isActive", required = false) Boolean isActive
+            @RequestParam(value = "isActive", required = false) Boolean isActive,
+
+            @Parameter(description = "分類 ID 篩選")
+            @RequestParam(value = "categoryId", required = false) Long categoryId
     ) {
-        log.debug("查詢商品列表, page: {}, size: {}, isActive: {}", page, size, isActive);
+        log.debug("查詢商品列表, page: {}, size: {}, isActive: {}, categoryId: {}", page, size, isActive, categoryId);
 
         PageableRequest pageableRequest = PageableRequest.builder()
                 .page(page)
@@ -73,7 +76,7 @@ public class ProductController {
                 .direction(direction)
                 .build();
 
-        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, isActive);
+        PageResponse<ProductDTO> result = productService.listProducts(pageableRequest, isActive, categoryId);
         return ApiResponse.success(result);
     }
 
