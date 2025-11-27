@@ -1,0 +1,110 @@
+{
+  "name": "Morning Harvest ERP API - Spring Boot",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  // VSCode 設定與擴充套件
+  "customizations": {
+    "vscode": {
+      // 自動安裝的擴充套件
+      "extensions": [
+        // Claude Code (AI 助手)
+        "anthropic.claude-code",
+
+        // Java 核心擴充套件包
+        "vscjava.vscode-java-pack",
+        "redhat.java",
+        "vscjava.vscode-java-debug",
+        "vscjava.vscode-java-test",
+        "vscjava.vscode-java-dependency",
+
+        // Spring Boot 擴充套件
+        "vmware.vscode-spring-boot",
+        "pivotal.vscode-boot-dev-pack",
+        "vscjava.vscode-spring-initializr",
+
+        // Maven 支援
+        "vscjava.vscode-maven",
+
+        // Lombok 支援
+        "gabrielbb.vscode-lombok",
+
+        // YAML 支援
+        "redhat.vscode-yaml",
+
+        // REST Client (測試 API)
+        "humao.rest-client",
+
+        // 其他實用工具
+        "ms-azuretools.vscode-docker",
+        "streetsidesoftware.code-spell-checker"
+      ],
+
+      // VSCode 設定
+      "settings": {
+        // Java 設定
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-21",
+            "path": "/opt/java/openjdk",
+            "default": true
+          }
+        ],
+        "java.jdt.ls.java.home": "/opt/java/openjdk",
+        "java.compile.nullAnalysis.mode": "automatic",
+        "java.configuration.updateBuildConfiguration": "automatic",
+
+        // Maven 設定
+        "maven.executable.path": "/usr/bin/mvn",
+        "maven.terminal.useJavaHome": true,
+
+        // Spring Boot 設定
+        "spring-boot.ls.java.home": "/opt/java/openjdk",
+        "spring.initializr.defaultLanguage": "Java",
+
+        // 編輯器設定
+        "editor.formatOnSave": true,
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+
+        // 檔案排除
+        "files.exclude": {
+          "**/.git": true,
+          "**/.DS_Store": true,
+          "**/target": true,
+          "**/.mvn": true
+        },
+
+        // 終端機設定
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash",
+            "args": ["-i", "-l"]
+          }
+        },
+        "terminal.integrated.shellIntegration.enabled": false,
+        "terminal.integrated.enablePersistentSessions": true,
+        "terminal.integrated.scrollback": 10000
+      }
+    }
+  },
+
+  // 轉發端口
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "Spring Boot Application",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // 容器內使用的使用者
+  "remoteUser": "vscode",
+
+  // 功能設定
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  }
+}

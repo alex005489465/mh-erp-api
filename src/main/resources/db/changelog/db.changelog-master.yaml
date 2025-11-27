@@ -1,0 +1,5 @@
+databaseChangeLog:
+  # 未來的資料庫遷移將在此處添加
+  # 範例:
+  # - include:
+  #     file: db/changelog/changes/001-create-users-table.yaml

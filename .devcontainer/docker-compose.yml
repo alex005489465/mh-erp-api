@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+
+    volumes:
+      # 掛載專案目錄
+      - ..:/workspace:cached
+      # Maven 本地倉庫快取
+      - maven-repo:/home/vscode/.m2/repository
+      # 持久化整個 home 目錄 (包含 Claude CLI 配置等)
+      - ./home:/home/vscode
+      # Bash 歷史記錄持久化
+      - bash-history:/commandhistory
+
+    # 保持容器運行
+    command: sleep infinity
+
+    # 環境變數
+    environment:
+      # 時區
+      TZ: Asia/Taipei
+
+    # 加入現有的 Docker 網路
+    networks:
+      - morning-harvest-network
+
+    # 工作目錄
+    working_dir: /workspace
+
+    # 暴露端口
+    ports:
+      - "8080:8080"
+
+# Volumes
+volumes:
+  maven-repo:
+    driver: local
+  bash-history:
+    driver: local
+
+# 使用外部已存在的網路
+networks:
+  morning-harvest-network:
+    external: true

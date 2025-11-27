@@ -1,0 +1,59 @@
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Documentation
+docs/
+
+# Home 目錄 - 不追蹤，首次使用需手動建立 mkdir home
+.devcontainer/home
+
+# 依賴套件
+node_modules/
+vendor/
+*.log
+
+# 環境變數
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 作業系統
+.DS_Store
+Thumbs.db
+
+# 建置產出
+dist/
+build/
+*.pyc
+__pycache__/
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+.mvn/timing.properties
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# 測試覆蓋率
+coverage/
+*.coverage
+.nyc_output/
+
+# 臨時檔案
+tmp/
+temp/
+*.tmp

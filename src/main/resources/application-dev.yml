@@ -1,0 +1,72 @@
+# 開發環境配置
+spring:
+  # 資料庫設定 (連接到 morning-harvest-mysql 容器)
+  datasource:
+    url: jdbc:mysql://morning-harvest-mysql:3306/erp_db?useSSL=false&serverTimezone=Asia/Taipei&allowPublicKeyRetrieval=true
+    username: morning_harvest_user
+    password: morning_harvest_dev_password_2024
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Liquibase 設定
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    drop-first: false  # 保護資料,不自動刪除表
+
+  # JPA/Hibernate 設定
+  jpa:
+    hibernate:
+      ddl-auto: validate  # 使用 Liquibase 管理資料庫結構,JPA 只驗證
+    show-sql: true     # 顯示 SQL 語句
+    properties:
+      hibernate:
+        format_sql: true  # 格式化 SQL
+        dialect: org.hibernate.dialect.MySQLDialect
+        use_sql_comments: true
+    generate-ddl: false  # 不由 JPA 生成 DDL
+
+  # Redis 設定 (連接到 morning-harvest-redis 容器)
+  data:
+    redis:
+      host: morning-harvest-redis
+      port: 6379
+      password:
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+          max-wait: -1ms
+
+  # DevTools 設定
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+# 開發環境 Logging
+logging:
+  level:
+    root: INFO
+    com.morningharvest.erp: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+# Actuator 開發環境設定
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"  # 開發環境開放所有端點
+
+# MinIO 儲存設定
+storage:
+  type: minio
+  minio:
+    endpoint: http://morning-harvest-minio:9000
+    access-key: minioadmin
+    secret-key: morning_harvest_minio_2024
+    public-url: http://morning-harvest-minio:9000
