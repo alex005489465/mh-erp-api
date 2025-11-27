@@ -8,6 +8,9 @@ docs/
 # Home 目錄 - 不追蹤，首次使用需手動建立 mkdir home
 .devcontainer/home
 
+# DevContainer 環境變數
+.devcontainer/.env
+
 # 依賴套件
 node_modules/
 vendor/

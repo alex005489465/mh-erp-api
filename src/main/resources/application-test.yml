@@ -1,0 +1,62 @@
+# 測試環境配置
+# 對應 infra/dev-infra 的測試環境服務
+spring:
+  # 資料庫設定 (連接到 mh-dev-api-test-1-mysql 容器)
+  datasource:
+    url: jdbc:mysql://mh-dev-api-test-1-mysql:3306/erp_db?useSSL=false&serverTimezone=Asia/Taipei&allowPublicKeyRetrieval=true
+    username: test_user
+    password: test_password_2024
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Liquibase 設定
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    drop-first: false
+
+  # JPA/Hibernate 設定
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.MySQLDialect
+    generate-ddl: false
+
+  # Redis 設定 (連接到 mh-dev-api-test-1-redis 容器)
+  data:
+    redis:
+      host: mh-dev-api-test-1-redis
+      port: 6379
+      password:
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+          max-wait: -1ms
+
+# 測試環境 Logging
+logging:
+  level:
+    root: INFO
+    com.morningharvest.erp: DEBUG
+
+# Actuator 測試環境設定
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+# MinIO 儲存設定 (連接到 mh-dev-api-test-1-minio 容器)
+storage:
+  type: minio
+  minio:
+    endpoint: http://mh-dev-api-test-1-minio:9000
+    access-key: test_admin
+    secret-key: test_minio_password_2024
+    public-url: http://mh-dev-api-test-1-minio:9000

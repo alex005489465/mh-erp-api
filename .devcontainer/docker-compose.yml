@@ -17,14 +17,14 @@ services:
     # 保持容器運行
     command: sleep infinity
 
-    # 環境變數
+    # 環境變數 (從 .env 讀取，傳遞給 Spring Boot)
     environment:
       # 時區
       TZ: Asia/Taipei
 
     # 加入現有的 Docker 網路
     networks:
-      - morning-harvest-network
+      - dev-network
 
     # 工作目錄
     working_dir: /workspace
@@ -40,7 +40,8 @@ volumes:
   bash-history:
     driver: local
 
-# 使用外部已存在的網路
+# 使用外部已存在的網路 (與 infra/dev-infra 相同)
 networks:
-  morning-harvest-network:
-    external: true
+  dev-network:
+    driver: bridge
+    name: ${NETWORK_NAME}

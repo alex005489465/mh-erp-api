@@ -1,8 +1,9 @@
 # 開發環境配置
+# 對應 infra/dev-infra 的開發環境服務
 spring:
-  # 資料庫設定 (連接到 morning-harvest-mysql 容器)
+  # 資料庫設定 (連接到 mh-dev-api-1-mysql 容器)
   datasource:
-    url: jdbc:mysql://morning-harvest-mysql:3306/erp_db?useSSL=false&serverTimezone=Asia/Taipei&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://mh-dev-api-1-mysql:3306/erp_db?useSSL=false&serverTimezone=Asia/Taipei&allowPublicKeyRetrieval=true
     username: morning_harvest_user
     password: morning_harvest_dev_password_2024
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -25,10 +26,10 @@ spring:
         use_sql_comments: true
     generate-ddl: false  # 不由 JPA 生成 DDL
 
-  # Redis 設定 (連接到 morning-harvest-redis 容器)
+  # Redis 設定 (連接到 mh-dev-api-1-redis 容器)
   data:
     redis:
-      host: morning-harvest-redis
+      host: mh-dev-api-1-redis
       port: 6379
       password:
       timeout: 3000ms
@@ -62,11 +63,11 @@ management:
       exposure:
         include: "*"  # 開發環境開放所有端點
 
-# MinIO 儲存設定
+# MinIO 儲存設定 (連接到 mh-dev-api-1-minio 容器)
 storage:
   type: minio
   minio:
-    endpoint: http://morning-harvest-minio:9000
+    endpoint: http://mh-dev-api-1-minio:9000
     access-key: minioadmin
     secret-key: morning_harvest_minio_2024
-    public-url: http://morning-harvest-minio:9000
+    public-url: http://mh-dev-api-1-minio:9000
