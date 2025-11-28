@@ -11,3 +11,7 @@ databaseChangeLog:
       file: db/changelog/changes/005-create-option-template-groups-table.sql
   - include:
       file: db/changelog/changes/006-create-option-template-values-table.sql
+  - include:
+      file: db/changelog/changes/007-create-product-option-groups-table.sql
+  - include:
+      file: db/changelog/changes/008-create-product-option-values-table.sql
