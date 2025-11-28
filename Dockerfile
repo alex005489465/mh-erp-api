@@ -1,12 +1,11 @@
 # ==========================================
 # Stage 1: Maven Builder
 # ==========================================
-FROM eclipse-temurin:21-jdk-jammy AS builder
+FROM harbor.harbor.svc.cluster.local/dockerhub-proxy/library/maven:3.9-eclipse-temurin-21 AS builder
 
-# 安裝 Maven
-RUN apt-get update && \
-    apt-get install -y maven && \
-    rm -rf /var/lib/apt/lists/*
+# 設定 Maven 使用 Nexus 代理
+RUN mkdir -p /root/.m2 && \
+    echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd"><mirrors><mirror><id>nexus</id><mirrorOf>*</mirrorOf><url>http://nexus-nexus3.nexus.svc.cluster.local:8081/repository/maven-public/</url></mirror></mirrors></settings>' > /root/.m2/settings.xml
 
 WORKDIR /build
 
@@ -25,9 +24,8 @@ RUN mvn clean package -DskipTests -B
 # ==========================================
 # Stage 2: Production Runtime
 # ==========================================
-FROM eclipse-temurin:21-jre-jammy
+FROM harbor.harbor.svc.cluster.local/dockerhub-proxy/library/eclipse-temurin:21-jre-jammy
 
-# 設定工作目錄
 WORKDIR /app
 
 # 建立非 root 使用者
@@ -39,18 +37,13 @@ COPY --from=builder /build/target/*.jar app.jar
 # 變更檔案擁有者
 RUN chown -R appuser:appuser /app
 
-# 切換到非 root 使用者
 USER appuser
 
-# 暴露應用程式端口
 EXPOSE 8080
 
-# 健康檢查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# JVM 參數優化
 ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
 
-# 啟動應用程式
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
