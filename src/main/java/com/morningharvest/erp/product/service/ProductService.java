@@ -2,12 +2,14 @@ package com.morningharvest.erp.product.service;
 
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.product.dto.CreateProductRequest;
 import com.morningharvest.erp.product.dto.ProductDTO;
 import com.morningharvest.erp.product.dto.UpdateProductRequest;
 import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.event.ProductUpdatedEvent;
 import com.morningharvest.erp.product.repository.ProductCategoryRepository;
 import com.morningharvest.erp.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final ProductCategoryRepository productCategoryRepository;
+    private final EventPublisher eventPublisher;
 
     @Transactional
     public ProductDTO createProduct(CreateProductRequest request) {
@@ -62,6 +65,9 @@ public class ProductService {
         Product product = productRepository.findById(request.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("商品不存在: " + request.getId()));
 
+        // 保存更新前的完整資料
+        ProductDTO beforeDTO = toDTO(product);
+
         // 驗證名稱不重複（排除自己）
         if (productRepository.existsByNameAndIdNot(request.getName(), request.getId())) {
             throw new IllegalArgumentException("商品名稱已存在: " + request.getName());
@@ -85,7 +91,15 @@ public class ProductService {
         Product saved = productRepository.save(product);
         log.info("商品更新成功, id: {}", saved.getId());
 
-        return toDTO(saved);
+        ProductDTO afterDTO = toDTO(saved);
+
+        // 發布商品更新事件（包含更新前後的完整資料）
+        eventPublisher.publish(
+            new ProductUpdatedEvent(beforeDTO, afterDTO),
+            "商品更新"
+        );
+
+        return afterDTO;
     }
 
     @Transactional
