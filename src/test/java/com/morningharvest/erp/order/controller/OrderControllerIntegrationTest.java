@@ -11,7 +11,11 @@ import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
+import com.morningharvest.erp.product.entity.ProductOptionGroup;
+import com.morningharvest.erp.product.entity.ProductOptionValue;
 import com.morningharvest.erp.product.repository.ProductCategoryRepository;
+import com.morningharvest.erp.product.repository.ProductOptionGroupRepository;
+import com.morningharvest.erp.product.repository.ProductOptionValueRepository;
 import com.morningharvest.erp.product.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,17 +62,28 @@ class OrderControllerIntegrationTest {
     @Autowired
     private ProductCategoryRepository productCategoryRepository;
 
+    @Autowired
+    private ProductOptionGroupRepository optionGroupRepository;
+
+    @Autowired
+    private ProductOptionValueRepository optionValueRepository;
+
     private Order testOrder;
     private Order completedOrder;
     private Product testProduct;
     private Product inactiveProduct;
     private OrderItem testOrderItem;
     private ProductCategory testCategory;
+    private ProductOptionGroup testOptionGroup;
+    private ProductOptionValue testOptionValue1;
+    private ProductOptionValue testOptionValue2;
 
     @BeforeEach
     void setUp() {
         orderItemRepository.deleteAll();
         orderRepository.deleteAll();
+        optionValueRepository.deleteAll();
+        optionGroupRepository.deleteAll();
 
         // 建立測試分類
         testCategory = ProductCategory.builder()
@@ -131,6 +146,37 @@ class OrderControllerIntegrationTest {
         // 更新訂單總金額
         testOrder.setTotalAmount(testOrderItem.getSubtotal());
         testOrder = orderRepository.save(testOrder);
+
+        // 建立產品選項群組
+        testOptionGroup = ProductOptionGroup.builder()
+                .productId(testProduct.getId())
+                .name("加料")
+                .minSelections(0)
+                .maxSelections(3)
+                .isActive(true)
+                .sortOrder(1)
+                .build();
+        testOptionGroup = optionGroupRepository.save(testOptionGroup);
+
+        // 建立選項值 1 (加起司 +10)
+        testOptionValue1 = ProductOptionValue.builder()
+                .groupId(testOptionGroup.getId())
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .sortOrder(1)
+                .build();
+        testOptionValue1 = optionValueRepository.save(testOptionValue1);
+
+        // 建立選項值 2 (加蛋 +15)
+        testOptionValue2 = ProductOptionValue.builder()
+                .groupId(testOptionGroup.getId())
+                .name("加蛋")
+                .priceAdjustment(new BigDecimal("15.00"))
+                .isActive(true)
+                .sortOrder(2)
+                .build();
+        testOptionValue2 = optionValueRepository.save(testOptionValue2);
     }
 
     // ========== 建立訂單 POST /api/orders/create ==========
@@ -636,5 +682,320 @@ class OrderControllerIntegrationTest {
         // 驗證總金額已更新: 只剩下 118
         Order updated = orderRepository.findById(testOrder.getId()).orElseThrow();
         assertThat(updated.getTotalAmount()).isEqualByComparingTo(new BigDecimal("118.00"));
+    }
+
+    // ========== 客製化選項完整流程測試 ==========
+
+    @Test
+    @DisplayName("POST /api/orders/items/add - 多選項正確計算")
+    void addItem_WithMultipleOptions_CalculatesCorrectly() throws Exception {
+        // 使用已建立的選項資料: 加起司(+10) + 加蛋(+15) = 25
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build(),
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue2.getName())
+                        .priceAdjustment(testOptionValue2.getPriceAdjustment())
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(testOrder.getId())
+                .productId(testProduct.getId())
+                .quantity(1)
+                .options(options)
+                .build();
+
+        mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.productName").value("招牌漢堡"))
+                .andExpect(jsonPath("$.data.optionsAmount").value(25.00))  // 10 + 15
+                .andExpect(jsonPath("$.data.subtotal").value(84.00));      // (59 + 25) * 1
+    }
+
+    @Test
+    @DisplayName("POST /api/orders/items/add - 多選項多數量正確計算")
+    void addItem_WithMultipleOptionsAndQuantity_CalculatesCorrectly() throws Exception {
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build(),
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue2.getName())
+                        .priceAdjustment(testOptionValue2.getPriceAdjustment())
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(testOrder.getId())
+                .productId(testProduct.getId())
+                .quantity(2)
+                .options(options)
+                .build();
+
+        mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.quantity").value(2))
+                .andExpect(jsonPath("$.data.optionsAmount").value(25.00))   // 10 + 15
+                .andExpect(jsonPath("$.data.subtotal").value(168.00));      // (59 + 25) * 2
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/detail - 選項資料正確回傳 (JSON 反序列化)")
+    void getOrderDetail_WithOptions_ReturnsOptionsCorrectly() throws Exception {
+        // 先建立含選項的訂單項目
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build(),
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue2.getName())
+                        .priceAdjustment(testOptionValue2.getPriceAdjustment())
+                        .build()
+        );
+
+        AddItemRequest addRequest = AddItemRequest.builder()
+                .orderId(testOrder.getId())
+                .productId(testProduct.getId())
+                .quantity(1)
+                .options(options)
+                .build();
+
+        // 加入商品
+        mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(addRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000));
+
+        // 查詢訂單詳情，驗證選項正確反序列化
+        mockMvc.perform(get("/api/orders/detail")
+                        .param("id", testOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.items").isArray())
+                // 第二個項目是剛加入的 (第一個是 setUp 建立的)
+                .andExpect(jsonPath("$.data.items[1].options").isArray())
+                .andExpect(jsonPath("$.data.items[1].options.length()").value(2))
+                .andExpect(jsonPath("$.data.items[1].options[0].groupName").value("加料"))
+                .andExpect(jsonPath("$.data.items[1].options[0].valueName").value("加起司"))
+                .andExpect(jsonPath("$.data.items[1].options[0].priceAdjustment").value(10.00))
+                .andExpect(jsonPath("$.data.items[1].options[1].groupName").value("加料"))
+                .andExpect(jsonPath("$.data.items[1].options[1].valueName").value("加蛋"))
+                .andExpect(jsonPath("$.data.items[1].options[1].priceAdjustment").value(15.00))
+                .andExpect(jsonPath("$.data.items[1].optionsAmount").value(25.00))
+                .andExpect(jsonPath("$.data.items[1].subtotal").value(84.00));
+    }
+
+    @Test
+    @DisplayName("POST /api/orders/items/update - 更新選項成功")
+    void updateItem_WithOptions_Success() throws Exception {
+        // 先建立含單一選項的訂單項目
+        List<OrderItemOptionDTO> initialOptions = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build()
+        );
+
+        AddItemRequest addRequest = AddItemRequest.builder()
+                .orderId(testOrder.getId())
+                .productId(testProduct.getId())
+                .quantity(1)
+                .options(initialOptions)
+                .build();
+
+        // 加入商品並取得項目 ID
+        String addResponse = mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(addRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.optionsAmount").value(10.00))
+                .andReturn().getResponse().getContentAsString();
+
+        Long newItemId = objectMapper.readTree(addResponse).get("data").get("id").asLong();
+
+        // 更新選項: 改為加起司 + 加蛋
+        List<OrderItemOptionDTO> updatedOptions = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build(),
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue2.getName())
+                        .priceAdjustment(testOptionValue2.getPriceAdjustment())
+                        .build()
+        );
+
+        UpdateItemRequest updateRequest = UpdateItemRequest.builder()
+                .itemId(newItemId)
+                .options(updatedOptions)
+                .build();
+
+        mockMvc.perform(post("/api/orders/items/update")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.optionsAmount").value(25.00))  // 10 + 15
+                .andExpect(jsonPath("$.data.subtotal").value(84.00));      // (59 + 25) * 1
+    }
+
+    @Test
+    @DisplayName("POST /api/orders/items/update - 更新選項重算小計與訂單總金額")
+    void updateItem_ChangeOptions_RecalculatesSubtotalAndTotal() throws Exception {
+        // 先建立含選項的訂單項目
+        List<OrderItemOptionDTO> initialOptions = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName(testOptionGroup.getName())
+                        .valueName(testOptionValue1.getName())
+                        .priceAdjustment(testOptionValue1.getPriceAdjustment())
+                        .build()
+        );
+
+        AddItemRequest addRequest = AddItemRequest.builder()
+                .orderId(testOrder.getId())
+                .productId(testProduct.getId())
+                .quantity(2)
+                .options(initialOptions)
+                .build();
+
+        // 加入商品: (59 + 10) * 2 = 138
+        String addResponse = mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(addRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.subtotal").value(138.00))
+                .andReturn().getResponse().getContentAsString();
+
+        Long newItemId = objectMapper.readTree(addResponse).get("data").get("id").asLong();
+
+        // 更新: 移除選項
+        UpdateItemRequest updateRequest = UpdateItemRequest.builder()
+                .itemId(newItemId)
+                .options(List.of())  // 清空選項
+                .build();
+
+        mockMvc.perform(post("/api/orders/items/update")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.optionsAmount").value(0))
+                .andExpect(jsonPath("$.data.subtotal").value(118.00));  // 59 * 2
+
+        // 驗證訂單總金額更新
+        // 原本 testOrderItem: 59, 新項目更新後: 118, 總計: 177
+        Order updated = orderRepository.findById(testOrder.getId()).orElseThrow();
+        assertThat(updated.getTotalAmount()).isEqualByComparingTo(new BigDecimal("177.00"));
+    }
+
+    @Test
+    @DisplayName("完整流程: 建立訂單 → 加入含選項商品 → 查詢 → 更新選項 → 再查詢")
+    void fullFlow_OrderWithOptions() throws Exception {
+        // 1. 建立新訂單
+        String createResponse = mockMvc.perform(post("/api/orders/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andReturn().getResponse().getContentAsString();
+
+        Long orderId = objectMapper.readTree(createResponse).get("data").get("id").asLong();
+
+        // 2. 加入含選項的商品 (加起司 + 加蛋)
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build(),
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加蛋")
+                        .priceAdjustment(new BigDecimal("15.00"))
+                        .build()
+        );
+
+        AddItemRequest addRequest = AddItemRequest.builder()
+                .orderId(orderId)
+                .productId(testProduct.getId())
+                .quantity(1)
+                .options(options)
+                .build();
+
+        String addResponse = mockMvc.perform(post("/api/orders/items/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(addRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.optionsAmount").value(25.00))
+                .andExpect(jsonPath("$.data.subtotal").value(84.00))
+                .andReturn().getResponse().getContentAsString();
+
+        Long itemId = objectMapper.readTree(addResponse).get("data").get("id").asLong();
+
+        // 3. 查詢訂單詳情，驗證選項正確
+        mockMvc.perform(get("/api/orders/detail")
+                        .param("id", orderId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalAmount").value(84.00))
+                .andExpect(jsonPath("$.data.items[0].options").isArray())
+                .andExpect(jsonPath("$.data.items[0].options.length()").value(2));
+
+        // 4. 更新項目: 只保留加起司
+        List<OrderItemOptionDTO> newOptions = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        UpdateItemRequest updateRequest = UpdateItemRequest.builder()
+                .itemId(itemId)
+                .options(newOptions)
+                .build();
+
+        mockMvc.perform(post("/api/orders/items/update")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.optionsAmount").value(10.00))
+                .andExpect(jsonPath("$.data.subtotal").value(69.00));  // (59 + 10) * 1
+
+        // 5. 再次查詢訂單詳情，驗證選項已更新
+        mockMvc.perform(get("/api/orders/detail")
+                        .param("id", orderId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalAmount").value(69.00))
+                .andExpect(jsonPath("$.data.items[0].options").isArray())
+                .andExpect(jsonPath("$.data.items[0].options.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].options[0].valueName").value("加起司"));
     }
 }
