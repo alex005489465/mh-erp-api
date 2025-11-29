@@ -2,6 +2,7 @@ package com.morningharvest.erp.product.service;
 
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.product.dto.CreateProductRequest;
 import com.morningharvest.erp.product.dto.ProductDTO;
@@ -43,6 +44,9 @@ class ProductServiceTest {
 
     @Mock
     private ProductCategoryRepository productCategoryRepository;
+
+    @Mock
+    private EventPublisher eventPublisher;
 
     @InjectMocks
     private ProductService productService;

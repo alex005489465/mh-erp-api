@@ -19,3 +19,7 @@ databaseChangeLog:
       file: db/changelog/changes/009-create-combos-table.sql
   - include:
       file: db/changelog/changes/010-create-combo-items-table.sql
+  - include:
+      file: db/changelog/changes/011-create-orders-table.sql
+  - include:
+      file: db/changelog/changes/012-create-order-items-table.sql
