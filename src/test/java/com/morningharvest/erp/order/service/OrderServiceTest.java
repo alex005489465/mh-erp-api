@@ -11,6 +11,10 @@ import com.morningharvest.erp.order.entity.OrderItem;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.product.entity.Product;
+import com.morningharvest.erp.product.entity.ProductOptionGroup;
+import com.morningharvest.erp.product.entity.ProductOptionValue;
+import com.morningharvest.erp.product.repository.ProductOptionGroupRepository;
+import com.morningharvest.erp.product.repository.ProductOptionValueRepository;
 import com.morningharvest.erp.product.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +52,12 @@ class OrderServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private ProductOptionGroupRepository optionGroupRepository;
+
+    @Mock
+    private ProductOptionValueRepository optionValueRepository;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -475,6 +485,21 @@ class OrderServiceTest {
     @DisplayName("加入商品 - 選項加價正確計算")
     void addItem_WithOptions_CalculatesCorrectAmount() throws JsonProcessingException {
         // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .build();
+
         List<OrderItemOptionDTO> options = List.of(
                 OrderItemOptionDTO.builder()
                         .groupName("加料")
@@ -492,6 +517,10 @@ class OrderServiceTest {
 
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
         when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
         when(objectMapper.writeValueAsString(any())).thenReturn("[{\"groupName\":\"加料\"}]");
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
             OrderItem item = invocation.getArgument(0);
@@ -516,6 +545,36 @@ class OrderServiceTest {
     @DisplayName("加入商品 - 選項和數量計算小計")
     void addItem_WithOptionsAndQuantity_CalculatesSubtotal() throws JsonProcessingException {
         // Given
+        ProductOptionGroup group1 = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionGroup group2 = ProductOptionGroup.builder()
+                .id(2L)
+                .productId(1L)
+                .name("辣度")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value1 = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value2 = ProductOptionValue.builder()
+                .id(2L)
+                .groupId(2L)
+                .name("小辣")
+                .priceAdjustment(BigDecimal.ZERO)
+                .isActive(true)
+                .build();
+
         List<OrderItemOptionDTO> options = List.of(
                 OrderItemOptionDTO.builder()
                         .groupName("加料")
@@ -538,6 +597,10 @@ class OrderServiceTest {
 
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
         when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group1, group2));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L, 2L)))
+                .thenReturn(List.of(value1, value2));
         when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
             OrderItem item = invocation.getArgument(0);
@@ -683,6 +746,21 @@ class OrderServiceTest {
     @DisplayName("更新項目 - 更新選項重新計算小計")
     void updateItem_WithOptions_RecalculatesSubtotal() throws JsonProcessingException {
         // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加蛋")
+                .priceAdjustment(new BigDecimal("15.00"))
+                .isActive(true)
+                .build();
+
         List<OrderItemOptionDTO> options = List.of(
                 OrderItemOptionDTO.builder()
                         .groupName("加料")
@@ -698,6 +776,11 @@ class OrderServiceTest {
 
         when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
         when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
@@ -873,5 +956,338 @@ class OrderServiceTest {
                 .hasMessageContaining("只有草稿狀態的訂單可以刪除項目");
 
         verify(orderItemRepository, never()).delete(any());
+    }
+
+    // ========== 選項驗證測試 ==========
+
+    @Test
+    @DisplayName("加入商品 - 有效選項驗證成功")
+    void addItem_WithValidOptions_Success() throws JsonProcessingException {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(1L)
+                .productId(1L)
+                .quantity(1)
+                .options(options)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
+            OrderItem item = invocation.getArgument(0);
+            item.setId(1L);
+            item.setCreatedAt(LocalDateTime.now());
+            item.setUpdatedAt(LocalDateTime.now());
+            return item;
+        });
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+
+        // When
+        OrderItemDTO result = orderService.addItem(request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
+        verify(optionGroupRepository).findByProductIdAndIsActiveOrderBySortOrder(1L, true);
+        verify(optionValueRepository).findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L));
+    }
+
+    @Test
+    @DisplayName("加入商品 - 無效選項群組名稱拋出例外")
+    void addItem_WithInvalidGroupName_ThrowsException() {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("不存在的群組")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(1L)
+                .productId(1L)
+                .quantity(1)
+                .options(options)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.addItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("選項群組不存在: 不存在的群組");
+
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("加入商品 - 無效選項值名稱拋出例外")
+    void addItem_WithInvalidValueName_ThrowsException() {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("不存在的選項")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(1L)
+                .productId(1L)
+                .quantity(1)
+                .options(options)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.addItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("選項值不存在: 不存在的選項");
+
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("加入商品 - 商品無選項但傳入選項拋出例外")
+    void addItem_ProductHasNoOptions_ThrowsException() {
+        // Given
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(1L)
+                .productId(1L)
+                .quantity(1)
+                .options(options)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(Collections.emptyList());
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.addItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("此商品沒有可用的選項");
+
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("加入商品 - 價格不一致使用資料庫價格")
+    void addItem_WithMismatchedPrice_UsesDbPrice() throws JsonProcessingException {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))  // 資料庫價格
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("5.00"))  // 客戶端傳入錯誤價格
+                        .build()
+        );
+
+        AddItemRequest request = AddItemRequest.builder()
+                .orderId(1L)
+                .productId(1L)
+                .quantity(1)
+                .options(options)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
+            OrderItem item = invocation.getArgument(0);
+            item.setId(1L);
+            item.setCreatedAt(LocalDateTime.now());
+            item.setUpdatedAt(LocalDateTime.now());
+            return item;
+        });
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+
+        // When
+        OrderItemDTO result = orderService.addItem(request);
+
+        // Then - 應使用資料庫價格 10.00，而非客戶端傳入的 5.00
+        assertThat(result).isNotNull();
+        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
+        // 小計: (59.00 + 10.00) * 1 = 69.00
+        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("69.00"));
+    }
+
+    @Test
+    @DisplayName("更新項目 - 有效選項驗證成功")
+    void updateItem_WithValidOptions_Success() throws JsonProcessingException {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加蛋")
+                .priceAdjustment(new BigDecimal("15.00"))
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加蛋")
+                        .priceAdjustment(new BigDecimal("15.00"))
+                        .build()
+        );
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(1L)
+                .options(options)
+                .build();
+
+        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
+
+        // When
+        OrderItemDTO result = orderService.updateItem(request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("15.00"));
+        verify(optionGroupRepository).findByProductIdAndIsActiveOrderBySortOrder(1L, true);
+        verify(optionValueRepository).findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L));
+    }
+
+    @Test
+    @DisplayName("更新項目 - 無效選項群組拋出例外")
+    void updateItem_WithInvalidOptionGroup_ThrowsException() {
+        // Given
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("無效群組")
+                        .valueName("加蛋")
+                        .priceAdjustment(new BigDecimal("15.00"))
+                        .build()
+        );
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(1L)
+                .options(options)
+                .build();
+
+        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.updateItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("選項群組不存在: 無效群組");
+
+        verify(orderItemRepository, never()).save(any());
     }
 }
