@@ -16,31 +16,74 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * 訂單管理 Controller
- * 提供訂單 CRUD 及項目管理 API
+ * 提供訂單 CRUD 操作（整批更新模式）
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
-@Tag(name = "訂單管理", description = "點餐、訂單項目管理等操作")
+@Tag(name = "訂單管理", description = "訂單建立、更新、刪除、完成等操作")
 public class OrderController {
 
     private final OrderService orderService;
 
     /**
-     * 建立訂單（草稿）
+     * 建立訂單（含項目）
      */
     @PostMapping("/create")
-    @Operation(summary = "建立訂單", description = "建立新的草稿訂單")
-    public ApiResponse<OrderDTO> createOrder(
+    @Operation(summary = "建立訂單", description = "建立訂單並加入項目。可同時傳入單點商品和套餐")
+    public ApiResponse<OrderDetailDTO> createOrder(
             @Valid @RequestBody(required = false) CreateOrderRequest request
     ) {
         log.info("建立訂單");
         if (request == null) {
             request = new CreateOrderRequest();
         }
-        OrderDTO order = orderService.createOrder(request);
+        OrderDetailDTO order = orderService.createOrder(request);
         return ApiResponse.success("訂單建立成功", order);
+    }
+
+    /**
+     * 更新訂單（整批取代項目）
+     */
+    @PostMapping("/update")
+    @Operation(summary = "更新訂單", description = "整批更新訂單。會刪除所有舊項目，建立新項目")
+    public ApiResponse<OrderDetailDTO> updateOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id,
+            @Valid @RequestBody UpdateOrderRequest request
+    ) {
+        log.info("更新訂單, id: {}", id);
+        OrderDetailDTO order = orderService.updateOrder(id, request);
+        return ApiResponse.success("訂單更新成功", order);
+    }
+
+    /**
+     * 刪除訂單
+     */
+    @PostMapping("/delete")
+    @Operation(summary = "刪除訂單", description = "刪除草稿訂單及其所有項目")
+    public ApiResponse<Void> deleteOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id
+    ) {
+        log.info("刪除訂單, id: {}", id);
+        orderService.deleteOrder(id);
+        return ApiResponse.success("訂單已刪除");
+    }
+
+    /**
+     * 完成訂單
+     */
+    @PostMapping("/complete")
+    @Operation(summary = "完成訂單", description = "將草稿訂單設為完成狀態，完成後不可修改")
+    public ApiResponse<OrderDTO> completeOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id
+    ) {
+        log.info("完成訂單, id: {}", id);
+        OrderDTO order = orderService.completeOrder(id);
+        return ApiResponse.success("訂單完成", order);
     }
 
     /**
@@ -92,70 +135,5 @@ public class OrderController {
 
         PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, status, orderType);
         return ApiResponse.success(result);
-    }
-
-    /**
-     * 完成訂單
-     */
-    @PostMapping("/complete")
-    @Operation(summary = "完成訂單", description = "將草稿訂單設為完成狀態")
-    public ApiResponse<OrderDTO> completeOrder(
-            @Parameter(description = "訂單 ID", required = true, example = "1")
-            @RequestParam("id") Long id
-    ) {
-        log.info("完成訂單, id: {}", id);
-        OrderDTO order = orderService.completeOrder(id);
-        return ApiResponse.success("訂單完成", order);
-    }
-
-    // ========== 訂單項目操作 ==========
-
-    /**
-     * 加入項目到訂單（單點商品或套餐）
-     * - 單點商品: 設定 productId，回傳單一 OrderItemDTO
-     * - 套餐: 設定 comboId，回傳 List<OrderItemDTO>
-     */
-    @PostMapping("/items/add")
-    @Operation(summary = "加入項目", description = "將單點商品或套餐加入到訂單中。單點設定 productId，套餐設定 comboId")
-    public ApiResponse<Object> addItem(
-            @Valid @RequestBody AddItemRequest request
-    ) {
-        if (request.getComboId() != null) {
-            log.info("加入套餐到訂單, orderId: {}, comboId: {}", request.getOrderId(), request.getComboId());
-        } else {
-            log.info("加入單點商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
-        }
-        Object result = orderService.addItem(request);
-        String message = (request.getComboId() != null) ? "套餐已加入訂單" : "商品已加入訂單";
-        return ApiResponse.success(message, result);
-    }
-
-    /**
-     * 更新訂單項目
-     */
-    @PostMapping("/items/update")
-    @Operation(summary = "更新項目", description = "更新訂單項目的數量、選項或備註")
-    public ApiResponse<OrderItemDTO> updateItem(
-            @Valid @RequestBody UpdateItemRequest request
-    ) {
-        log.info("更新訂單項目, itemId: {}", request.getItemId());
-        OrderItemDTO item = orderService.updateItem(request);
-        return ApiResponse.success("項目已更新", item);
-    }
-
-    /**
-     * 移除訂單項目
-     * - 單點商品: 只刪除該項目
-     * - 套餐商品: 自動刪除整組套餐 (同一 groupSequence 的所有項目)
-     */
-    @PostMapping("/items/remove")
-    @Operation(summary = "移除項目", description = "從訂單中移除項目。單點商品只刪除該項目，套餐商品會自動刪除整組")
-    public ApiResponse<Void> removeItem(
-            @Parameter(description = "項目 ID", required = true, example = "1")
-            @RequestParam("id") Long id
-    ) {
-        log.info("移除訂單項目, id: {}", id);
-        orderService.removeItem(id);
-        return ApiResponse.success("項目已移除");
     }
 }

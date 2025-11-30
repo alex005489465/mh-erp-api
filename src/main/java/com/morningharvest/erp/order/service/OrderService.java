@@ -10,8 +10,7 @@ import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.dto.*;
-import com.morningharvest.erp.order.entity.Order;
-import com.morningharvest.erp.order.entity.OrderItem;
+import com.morningharvest.erp.order.entity.*;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.product.entity.Product;
@@ -47,10 +46,10 @@ public class OrderService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 建立訂單（草稿狀態）
+     * 建立訂單（含項目）
      */
     @Transactional
-    public OrderDTO createOrder(CreateOrderRequest request) {
+    public OrderDetailDTO createOrder(CreateOrderRequest request) {
         log.info("建立訂單, orderType: {}", request.getOrderType());
 
         Order order = Order.builder()
@@ -63,7 +62,13 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         log.info("訂單建立成功, id: {}", saved.getId());
 
-        return OrderDTO.from(saved);
+        // 建立訂單項目
+        if (request.getItems() != null && !request.getItems().isEmpty()) {
+            createOrderItems(saved.getId(), request.getItems());
+            recalculateOrderTotal(saved);
+        }
+
+        return getOrderById(saved.getId());
     }
 
     /**
@@ -76,7 +81,7 @@ public class OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + id));
 
-        List<OrderItem> items = orderItemRepository.findByOrderId(id);
+        List<OrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(id);
         List<OrderItemDTO> itemDTOs = items.stream()
                 .map(OrderItemDTO::from)
                 .toList();
@@ -109,18 +114,61 @@ public class OrderService {
     }
 
     /**
+     * 更新訂單（整批取代項目）
+     */
+    @Transactional
+    public OrderDetailDTO updateOrder(Long orderId, UpdateOrderRequest request) {
+        log.info("更新訂單, orderId: {}", orderId);
+
+        Order order = findDraftOrder(orderId);
+
+        // 更新訂單基本資訊
+        if (request.getOrderType() != null) {
+            order.setOrderType(request.getOrderType());
+        }
+        if (request.getNote() != null) {
+            order.setNote(request.getNote());
+        }
+        orderRepository.save(order);
+
+        // 刪除所有舊項目
+        orderItemRepository.deleteByOrderId(orderId);
+
+        // 建立所有新項目
+        if (request.getItems() != null && !request.getItems().isEmpty()) {
+            createOrderItems(orderId, request.getItems());
+        }
+
+        // 重新計算總金額
+        recalculateOrderTotal(order);
+
+        log.info("訂單更新成功, orderId: {}", orderId);
+        return getOrderById(orderId);
+    }
+
+    /**
+     * 刪除訂單
+     */
+    @Transactional
+    public void deleteOrder(Long orderId) {
+        log.info("刪除訂單, orderId: {}", orderId);
+
+        Order order = findDraftOrder(orderId);
+
+        orderItemRepository.deleteByOrderId(orderId);
+        orderRepository.delete(order);
+
+        log.info("訂單刪除成功, orderId: {}", orderId);
+    }
+
+    /**
      * 完成訂單
      */
     @Transactional
     public OrderDTO completeOrder(Long id) {
         log.info("完成訂單, id: {}", id);
 
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + id));
-
-        if (!"DRAFT".equals(order.getStatus())) {
-            throw new IllegalStateException("只有草稿狀態的訂單可以完成");
-        }
+        Order order = findDraftOrder(id);
 
         order.setStatus("COMPLETED");
         Order saved = orderRepository.save(order);
@@ -129,36 +177,49 @@ public class OrderService {
         return OrderDTO.from(saved);
     }
 
+    // ========== 內部方法 ==========
+
     /**
-     * 加入項目到訂單（單點或套餐）
-     * - 若 comboId 有值：加入套餐
-     * - 若 productId 有值：加入單點商品
-     *
-     * @return 單點返回 OrderItemDTO，套餐返回 List<OrderItemDTO>
+     * 取得草稿狀態的訂單
      */
-    @Transactional
-    public Object addItem(AddItemRequest request) {
-        if (request.getComboId() != null) {
-            return addComboInternal(request);
-        } else if (request.getProductId() != null) {
-            return addSingleItemInternal(request);
-        } else {
-            throw new IllegalArgumentException("必須指定 productId 或 comboId");
+    private Order findDraftOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + orderId));
+
+        if (!"DRAFT".equals(order.getStatus())) {
+            throw new IllegalStateException("只有草稿狀態的訂單可以操作");
+        }
+
+        return order;
+    }
+
+    /**
+     * 建立訂單項目
+     */
+    private void createOrderItems(Long orderId, List<OrderItemRequest> items) {
+        int groupSequence = 1;
+
+        for (OrderItemRequest item : items) {
+            if ("SINGLE".equals(item.getType())) {
+                createSingleItem(orderId, item, groupSequence);
+                groupSequence++;
+            } else if ("COMBO".equals(item.getType())) {
+                createComboItems(orderId, item, groupSequence);
+                groupSequence++;
+            } else {
+                throw new IllegalArgumentException("未知的項目類型: " + item.getType());
+            }
         }
     }
 
     /**
-     * 加入單點商品到訂單
+     * 建立單點商品項目
      */
-    private OrderItemDTO addSingleItemInternal(AddItemRequest request) {
-        log.info("加入單點商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
+    private void createSingleItem(Long orderId, OrderItemRequest request, int groupSequence) {
+        log.debug("建立單點商品, orderId: {}, productId: {}", orderId, request.getProductId());
 
-        // 驗證訂單存在且為草稿狀態
-        Order order = orderRepository.findById(request.getOrderId())
-                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + request.getOrderId()));
-
-        if (!"DRAFT".equals(order.getStatus())) {
-            throw new IllegalStateException("只有草稿狀態的訂單可以新增項目");
+        if (request.getProductId() == null) {
+            throw new IllegalArgumentException("單點商品必須指定 productId");
         }
 
         // 取得商品資訊
@@ -173,53 +234,32 @@ public class OrderService {
         List<OrderItemOptionDTO> validatedOptions = validateAndProcessOptions(
                 product.getId(), product.getName(), request.getOptions());
 
-        // 計算選項加價（使用驗證後的選項）
+        // 計算選項加價
         BigDecimal optionsAmount = calculateOptionsAmount(validatedOptions);
 
-        // 計算下一個 group_sequence
-        Integer maxGroupSequence = orderItemRepository.findMaxGroupSequenceByOrderId(request.getOrderId());
-        int nextGroupSequence = (maxGroupSequence != null) ? maxGroupSequence + 1 : 1;
-
         // 建立訂單項目
-        OrderItem item = OrderItem.builder()
-                .orderId(request.getOrderId())
-                .productId(product.getId())
-                .productName(product.getName())
-                .unitPrice(product.getPrice())
-                .quantity(request.getQuantity() != null ? request.getQuantity() : 1)
-                .options(serializeOptions(validatedOptions))
-                .optionsAmount(optionsAmount)
-                .note(request.getNote())
-                .itemType("SINGLE")
-                .groupSequence(nextGroupSequence)
-                .build();
+        SingleOrderItem item = new SingleOrderItem();
+        item.setOrderId(orderId);
+        item.setProductId(product.getId());
+        item.setProductName(product.getName());
+        item.setUnitPrice(product.getPrice());
+        item.setQuantity(request.getQuantity() != null ? request.getQuantity() : 1);
+        item.setOptions(serializeOptions(validatedOptions));
+        item.setOptionsAmount(optionsAmount);
+        item.setNote(request.getNote());
 
         item.calculateSubtotal();
-
-        OrderItem saved = orderItemRepository.save(item);
-        log.info("單點商品新增成功, id: {}, groupSequence: {}", saved.getId(), nextGroupSequence);
-
-        // 重新計算訂單總金額
-        recalculateOrderTotal(order);
-
-        return OrderItemDTO.from(saved);
+        orderItemRepository.save(item);
     }
 
     /**
-     * 加入套餐到訂單
-     * 新結構：
-     * - 先建立 COMBO 標題行（含套餐價格）
-     * - 再建立 COMBO_ITEM 商品行（含選項加價）
+     * 建立套餐項目（標題 + 內容）
      */
-    private List<OrderItemDTO> addComboInternal(AddItemRequest request) {
-        log.info("加入套餐到訂單, orderId: {}, comboId: {}", request.getOrderId(), request.getComboId());
+    private void createComboItems(Long orderId, OrderItemRequest request, int groupSequence) {
+        log.debug("建立套餐, orderId: {}, comboId: {}", orderId, request.getComboId());
 
-        // 驗證訂單存在且為草稿狀態
-        Order order = orderRepository.findById(request.getOrderId())
-                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + request.getOrderId()));
-
-        if (!"DRAFT".equals(order.getStatus())) {
-            throw new IllegalStateException("只有草稿狀態的訂單可以新增項目");
+        if (request.getComboId() == null) {
+            throw new IllegalArgumentException("套餐必須指定 comboId");
         }
 
         // 驗證套餐存在且已啟用
@@ -236,33 +276,18 @@ public class OrderService {
             throw new IllegalArgumentException("套餐沒有包含任何商品: " + combo.getName());
         }
 
-        // 計算下一個 group_sequence
-        Integer maxGroupSequence = orderItemRepository.findMaxGroupSequenceByOrderId(request.getOrderId());
-        int nextGroupSequence = (maxGroupSequence != null) ? maxGroupSequence + 1 : 1;
-
-        // 建立選項對應表 (productId -> ComboItemOptionsDTO)
+        // 建立選項對應表
         Map<Long, ComboItemOptionsDTO> optionsMap = buildComboItemOptionsMap(request.getComboItemOptions());
 
-        List<OrderItem> savedItems = new ArrayList<>();
-
-        // 1. 先建立套餐標題行 (COMBO)
-        OrderItem comboHeader = OrderItem.builder()
-                .orderId(request.getOrderId())
-                .productId(null)
-                .productName(null)
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .options(null)
-                .optionsAmount(BigDecimal.ZERO)
-                .note(null)
-                .itemType("COMBO")
-                .comboId(combo.getId())
-                .comboName(combo.getName())
-                .groupSequence(nextGroupSequence)
-                .comboPrice(combo.getPrice())
-                .build();
+        // 1. 建立套餐標題行 (COMBO)
+        ComboOrderItem comboHeader = new ComboOrderItem();
+        comboHeader.setOrderId(orderId);
+        comboHeader.setComboId(combo.getId());
+        comboHeader.setComboName(combo.getName());
+        comboHeader.setComboPrice(combo.getPrice());
+        comboHeader.setGroupSequence(groupSequence);
         comboHeader.calculateSubtotal();
-        savedItems.add(orderItemRepository.save(comboHeader));
+        orderItemRepository.save(comboHeader);
 
         // 2. 為每個套餐項目建立 COMBO_ITEM
         for (ComboItem comboItem : comboItems) {
@@ -286,33 +311,20 @@ public class OrderService {
             }
 
             // 建立 COMBO_ITEM
-            OrderItem orderItem = OrderItem.builder()
-                    .orderId(request.getOrderId())
-                    .productId(product.getId())
-                    .productName(product.getName())
-                    .unitPrice(BigDecimal.ZERO)
-                    .quantity(comboItem.getQuantity())
-                    .options(serializeOptions(validatedOptions))
-                    .optionsAmount(optionsAmount)
-                    .note(itemOptions != null ? itemOptions.getNote() : null)
-                    .itemType("COMBO_ITEM")
-                    .comboId(combo.getId())
-                    .comboName(null)
-                    .groupSequence(nextGroupSequence)
-                    .comboPrice(null)
-                    .build();
+            ComboItemOrderItem orderItem = new ComboItemOrderItem();
+            orderItem.setOrderId(orderId);
+            orderItem.setComboId(combo.getId());
+            orderItem.setGroupSequence(groupSequence);
+            orderItem.setProductId(product.getId());
+            orderItem.setProductName(product.getName());
+            orderItem.setQuantity(comboItem.getQuantity());
+            orderItem.setOptions(serializeOptions(validatedOptions));
+            orderItem.setOptionsAmount(optionsAmount);
+            orderItem.setNote(itemOptions != null ? itemOptions.getNote() : null);
 
             orderItem.calculateSubtotal();
-            savedItems.add(orderItemRepository.save(orderItem));
+            orderItemRepository.save(orderItem);
         }
-
-        log.info("套餐新增成功, comboId: {}, groupSequence: {}, itemCount: {}",
-                combo.getId(), nextGroupSequence, savedItems.size());
-
-        // 重新計算訂單總金額
-        recalculateOrderTotal(order);
-
-        return savedItems.stream().map(OrderItemDTO::from).toList();
     }
 
     /**
@@ -328,111 +340,10 @@ public class OrderService {
     }
 
     /**
-     * 更新訂單項目
-     * - SINGLE: 可更新數量、選項、備註
-     * - COMBO: 套餐標題行，不允許更新
-     * - COMBO_ITEM: 可更新選項、備註（數量由套餐定義，不允許更新）
-     */
-    @Transactional
-    public OrderItemDTO updateItem(UpdateItemRequest request) {
-        log.info("更新訂單項目, itemId: {}", request.getItemId());
-
-        OrderItem item = orderItemRepository.findById(request.getItemId())
-                .orElseThrow(() -> new ResourceNotFoundException("訂單項目不存在: " + request.getItemId()));
-
-        // COMBO 標題行不允許更新
-        if ("COMBO".equals(item.getItemType())) {
-            throw new IllegalArgumentException("套餐標題行不允許更新，請更新套餐內的商品項目");
-        }
-
-        // 驗證訂單狀態
-        Order order = orderRepository.findById(item.getOrderId())
-                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + item.getOrderId()));
-
-        if (!"DRAFT".equals(order.getStatus())) {
-            throw new IllegalStateException("只有草稿狀態的訂單可以修改項目");
-        }
-
-        // 更新數量 (只有 SINGLE 類型可以更新數量)
-        if (request.getQuantity() != null) {
-            if ("COMBO_ITEM".equals(item.getItemType())) {
-                throw new IllegalArgumentException("套餐商品的數量由套餐定義，不允許單獨修改");
-            }
-            item.setQuantity(request.getQuantity());
-        }
-
-        // 更新選項 (SINGLE 和 COMBO_ITEM 都可以更新選項)
-        if (request.getOptions() != null) {
-            // 取得商品資訊以驗證選項
-            Product product = productRepository.findById(item.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("商品不存在: " + item.getProductId()));
-
-            List<OrderItemOptionDTO> validatedOptions = validateAndProcessOptions(
-                    product.getId(), product.getName(), request.getOptions());
-
-            BigDecimal optionsAmount = calculateOptionsAmount(validatedOptions);
-            item.setOptions(serializeOptions(validatedOptions));
-            item.setOptionsAmount(optionsAmount);
-        }
-
-        // 更新備註
-        if (request.getNote() != null) {
-            item.setNote(request.getNote());
-        }
-
-        item.calculateSubtotal();
-
-        OrderItem saved = orderItemRepository.save(item);
-        log.info("訂單項目更新成功, id: {}", saved.getId());
-
-        // 重新計算訂單總金額
-        recalculateOrderTotal(order);
-
-        return OrderItemDTO.from(saved);
-    }
-
-    /**
-     * 移除訂單項目
-     * - 單點商品: 只刪除該項目
-     * - 套餐商品: 刪除整組 (同一 groupSequence 的所有項目)
-     */
-    @Transactional
-    public void removeItem(Long itemId) {
-        log.info("移除訂單項目, itemId: {}", itemId);
-
-        OrderItem item = orderItemRepository.findById(itemId)
-                .orElseThrow(() -> new ResourceNotFoundException("訂單項目不存在: " + itemId));
-
-        // 驗證訂單狀態
-        Order order = orderRepository.findById(item.getOrderId())
-                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + item.getOrderId()));
-
-        if (!"DRAFT".equals(order.getStatus())) {
-            throw new IllegalStateException("只有草稿狀態的訂單可以刪除項目");
-        }
-
-        if ("COMBO".equals(item.getItemType()) || "COMBO_ITEM".equals(item.getItemType())) {
-            // 套餐項目 (COMBO 或 COMBO_ITEM)：刪除整組 (同一 groupSequence 的所有項目)
-            List<OrderItem> groupItems = orderItemRepository.findByOrderIdAndGroupSequence(
-                    item.getOrderId(), item.getGroupSequence());
-            orderItemRepository.deleteAll(groupItems);
-            log.info("套餐整組移除成功, orderId: {}, groupSequence: {}, deletedCount: {}",
-                    item.getOrderId(), item.getGroupSequence(), groupItems.size());
-        } else {
-            // 單點項目：只刪除該項目
-            orderItemRepository.delete(item);
-            log.info("單點項目移除成功, itemId: {}", itemId);
-        }
-
-        // 重新計算訂單總金額
-        recalculateOrderTotal(order);
-    }
-
-    /**
      * 重新計算訂單總金額
      */
     private void recalculateOrderTotal(Order order) {
-        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        List<OrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
 
         BigDecimal total = items.stream()
                 .map(OrderItem::getSubtotal)
@@ -474,13 +385,6 @@ public class OrderService {
 
     /**
      * 驗證並處理訂單選項
-     * - 驗證選項群組和選項值是否存在於該產品
-     * - 從資料庫取得正確的價格調整額
-     *
-     * @param productId   商品 ID
-     * @param productName 商品名稱（用於錯誤訊息）
-     * @param options     客戶端傳入的選項列表
-     * @return 驗證後的選項列表（使用資料庫價格）
      */
     private List<OrderItemOptionDTO> validateAndProcessOptions(Long productId, String productName, List<OrderItemOptionDTO> options) {
         if (options == null || options.isEmpty()) {
@@ -532,7 +436,7 @@ public class OrderService {
                         String.format("選項值不存在: %s (群組: %s)", option.getValueName(), option.getGroupName()));
             }
 
-            // 檢查價格是否一致，不一致則記錄警告
+            // 檢查價格是否一致
             if (option.getPriceAdjustment() != null &&
                     option.getPriceAdjustment().compareTo(value.getPriceAdjustment()) != 0) {
                 log.warn("選項價格不一致, 客戶端: {}, 資料庫: {}, 群組: {}, 選項: {}",

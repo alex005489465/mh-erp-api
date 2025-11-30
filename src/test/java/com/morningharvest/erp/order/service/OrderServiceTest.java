@@ -10,8 +10,7 @@ import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.dto.*;
-import com.morningharvest.erp.order.entity.Order;
-import com.morningharvest.erp.order.entity.OrderItem;
+import com.morningharvest.erp.order.entity.*;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.product.entity.Product;
@@ -75,12 +74,8 @@ class OrderServiceTest {
 
     private Order testOrder;
     private Order completedOrder;
-    private OrderItem testOrderItem;
     private Product testProduct;
     private Product inactiveProduct;
-    private CreateOrderRequest createOrderRequest;
-    private AddItemRequest addItemRequest;
-    private UpdateItemRequest updateItemRequest;
 
     @BeforeEach
     void setUp() {
@@ -116,45 +111,13 @@ class OrderServiceTest {
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
-
-        testOrderItem = OrderItem.builder()
-                .id(1L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("招牌漢堡")
-                .unitPrice(new BigDecimal("59.00"))
-                .quantity(1)
-                .subtotal(new BigDecimal("59.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .note("少辣")
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
-
-        createOrderRequest = CreateOrderRequest.builder()
-                .orderType("TAKEOUT")
-                .note("外帶訂單")
-                .build();
-
-        addItemRequest = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(2)
-                .note("不要酸黃瓜")
-                .build();
-
-        updateItemRequest = UpdateItemRequest.builder()
-                .itemId(1L)
-                .quantity(3)
-                .note("更新備註")
-                .build();
     }
 
     // ========== createOrder 測試 ==========
 
     @Test
-    @DisplayName("建立訂單 - 成功")
-    void createOrder_Success() {
+    @DisplayName("建立訂單 - 空訂單成功")
+    void createOrder_Empty_Success() {
         // Given
         CreateOrderRequest request = CreateOrderRequest.builder().build();
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
@@ -164,60 +127,86 @@ class OrderServiceTest {
             o.setUpdatedAt(LocalDateTime.now());
             return o;
         });
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(Collections.emptyList());
 
         // When
-        OrderDTO result = orderService.createOrder(request);
+        OrderDetailDTO result = orderService.createOrder(request);
 
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getStatus()).isEqualTo("DRAFT");
         assertThat(result.getOrderType()).isEqualTo("DINE_IN");
-        assertThat(result.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
-        verify(orderRepository).save(any(Order.class));
+        verify(orderRepository).save(any(Order.class)); // 空訂單只會 save 一次
     }
 
     @Test
-    @DisplayName("建立訂單 - 指定訂單類型成功")
-    void createOrder_WithOrderType_Success() {
+    @DisplayName("建立訂單 - 含項目成功")
+    void createOrder_WithItems_Success() throws JsonProcessingException {
         // Given
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .orderType("TAKEOUT")
+                .note("外帶訂單")
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("SINGLE")
+                                .productId(1L)
+                                .quantity(2)
+                                .build()
+                ))
+                .build();
+
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order o = invocation.getArgument(0);
-            o.setId(1L);
+            if (o.getId() == null) {
+                o.setId(1L);
+            }
             o.setCreatedAt(LocalDateTime.now());
             o.setUpdatedAt(LocalDateTime.now());
             return o;
         });
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
+            OrderItem item = invocation.getArgument(0);
+            item.setId(1L);
+            item.setCreatedAt(LocalDateTime.now());
+            item.setUpdatedAt(LocalDateTime.now());
+            return item;
+        });
+
+        SingleOrderItem savedItem = new SingleOrderItem();
+        savedItem.setId(1L);
+        savedItem.setOrderId(1L);
+        savedItem.setProductId(1L);
+        savedItem.setProductName("招牌漢堡");
+        savedItem.setUnitPrice(new BigDecimal("59.00"));
+        savedItem.setQuantity(2);
+        savedItem.setSubtotal(new BigDecimal("118.00"));
+        savedItem.setCreatedAt(LocalDateTime.now());
+        savedItem.setUpdatedAt(LocalDateTime.now());
+
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(savedItem));
+
+        Order orderWithAmount = Order.builder()
+                .id(1L)
+                .status("DRAFT")
+                .orderType("TAKEOUT")
+                .totalAmount(new BigDecimal("118.00"))
+                .note("外帶訂單")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(orderWithAmount));
 
         // When
-        OrderDTO result = orderService.createOrder(createOrderRequest);
+        OrderDetailDTO result = orderService.createOrder(request);
 
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getOrderType()).isEqualTo("TAKEOUT");
         assertThat(result.getNote()).isEqualTo("外帶訂單");
-    }
-
-    @Test
-    @DisplayName("建立訂單 - 含備註成功")
-    void createOrder_WithNote_Success() {
-        // Given
-        CreateOrderRequest request = CreateOrderRequest.builder()
-                .note("特別備註")
-                .build();
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
-            Order o = invocation.getArgument(0);
-            o.setId(1L);
-            o.setCreatedAt(LocalDateTime.now());
-            o.setUpdatedAt(LocalDateTime.now());
-            return o;
-        });
-
-        // When
-        OrderDTO result = orderService.createOrder(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getNote()).isEqualTo("特別備註");
+        assertThat(result.getItems()).hasSize(1);
+        verify(orderItemRepository).save(any(SingleOrderItem.class));
     }
 
     // ========== getOrderById 測試 ==========
@@ -226,8 +215,19 @@ class OrderServiceTest {
     @DisplayName("查詢訂單 - 成功")
     void getOrderById_Success() {
         // Given
+        SingleOrderItem testItem = new SingleOrderItem();
+        testItem.setId(1L);
+        testItem.setOrderId(1L);
+        testItem.setProductId(1L);
+        testItem.setProductName("招牌漢堡");
+        testItem.setUnitPrice(new BigDecimal("59.00"));
+        testItem.setQuantity(1);
+        testItem.setSubtotal(new BigDecimal("59.00"));
+        testItem.setCreatedAt(LocalDateTime.now());
+        testItem.setUpdatedAt(LocalDateTime.now());
+
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(testItem));
 
         // When
         OrderDetailDTO result = orderService.getOrderById(1L);
@@ -239,22 +239,7 @@ class OrderServiceTest {
         assertThat(result.getItems()).hasSize(1);
         assertThat(result.getItems().get(0).getProductName()).isEqualTo("招牌漢堡");
         verify(orderRepository).findById(1L);
-        verify(orderItemRepository).findByOrderId(1L);
-    }
-
-    @Test
-    @DisplayName("查詢訂單 - 無項目成功")
-    void getOrderById_WithoutItems_Success() {
-        // Given
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        OrderDetailDTO result = orderService.getOrderById(1L);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getItems()).isEmpty();
+        verify(orderItemRepository).findByOrderIdOrderByIdAsc(1L);
     }
 
     @Test
@@ -316,68 +301,128 @@ class OrderServiceTest {
         verify(orderRepository).findByStatus(eq("DRAFT"), any(Pageable.class));
     }
 
+    // ========== updateOrder 測試 ==========
+
     @Test
-    @DisplayName("分頁查詢訂單 - 篩選類型")
-    void listOrders_FilterByOrderType() {
+    @DisplayName("更新訂單 - 成功")
+    void updateOrder_Success() throws JsonProcessingException {
         // Given
-        PageableRequest pageableRequest = PageableRequest.builder()
-                .page(1)
-                .size(10)
+        UpdateOrderRequest request = UpdateOrderRequest.builder()
+                .orderType("TAKEOUT")
+                .note("改外帶")
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("SINGLE")
+                                .productId(1L)
+                                .quantity(3)
+                                .build()
+                ))
                 .build();
 
-        Page<Order> orderPage = new PageImpl<>(List.of(testOrder));
-        when(orderRepository.findByOrderType(eq("DINE_IN"), any(Pageable.class))).thenReturn(orderPage);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doNothing().when(orderItemRepository).deleteByOrderId(1L);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
+            OrderItem item = invocation.getArgument(0);
+            item.setId(1L);
+            item.setCreatedAt(LocalDateTime.now());
+            item.setUpdatedAt(LocalDateTime.now());
+            return item;
+        });
+
+        SingleOrderItem savedItem = new SingleOrderItem();
+        savedItem.setId(1L);
+        savedItem.setOrderId(1L);
+        savedItem.setProductId(1L);
+        savedItem.setProductName("招牌漢堡");
+        savedItem.setUnitPrice(new BigDecimal("59.00"));
+        savedItem.setQuantity(3);
+        savedItem.setSubtotal(new BigDecimal("177.00"));
+        savedItem.setCreatedAt(LocalDateTime.now());
+        savedItem.setUpdatedAt(LocalDateTime.now());
+
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(savedItem));
 
         // When
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, null, "DINE_IN");
+        OrderDetailDTO result = orderService.updateOrder(1L, request);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(result.getContent()).hasSize(1);
-        verify(orderRepository).findByOrderType(eq("DINE_IN"), any(Pageable.class));
+        verify(orderItemRepository).deleteByOrderId(1L);
+        verify(orderItemRepository).save(any(SingleOrderItem.class));
     }
 
     @Test
-    @DisplayName("分頁查詢訂單 - 篩選狀態和類型")
-    void listOrders_FilterByStatusAndOrderType() {
+    @DisplayName("更新訂單 - 訂單不存在拋出例外")
+    void updateOrder_NotFound_ThrowsException() {
         // Given
-        PageableRequest pageableRequest = PageableRequest.builder()
-                .page(1)
-                .size(10)
+        UpdateOrderRequest request = UpdateOrderRequest.builder()
+                .items(List.of())
                 .build();
+        when(orderRepository.findById(anyLong())).thenReturn(Optional.empty());
 
-        Page<Order> orderPage = new PageImpl<>(List.of(testOrder));
-        when(orderRepository.findByStatusAndOrderType(eq("DRAFT"), eq("DINE_IN"), any(Pageable.class)))
-                .thenReturn(orderPage);
-
-        // When
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, "DRAFT", "DINE_IN");
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getContent()).hasSize(1);
-        verify(orderRepository).findByStatusAndOrderType(eq("DRAFT"), eq("DINE_IN"), any(Pageable.class));
+        // When & Then
+        assertThatThrownBy(() -> orderService.updateOrder(999L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("訂單不存在");
     }
 
     @Test
-    @DisplayName("分頁查詢訂單 - 空結果")
-    void listOrders_EmptyResult() {
+    @DisplayName("更新訂單 - 非草稿狀態拋出例外")
+    void updateOrder_NotDraft_ThrowsException() {
         // Given
-        PageableRequest pageableRequest = PageableRequest.builder()
-                .page(1)
-                .size(10)
+        UpdateOrderRequest request = UpdateOrderRequest.builder()
+                .items(List.of())
                 .build();
+        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
 
-        Page<Order> orderPage = new PageImpl<>(Collections.emptyList());
-        when(orderRepository.findAll(any(Pageable.class))).thenReturn(orderPage);
+        // When & Then
+        assertThatThrownBy(() -> orderService.updateOrder(2L, request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("只有草稿狀態的訂單可以操作");
+    }
+
+    // ========== deleteOrder 測試 ==========
+
+    @Test
+    @DisplayName("刪除訂單 - 成功")
+    void deleteOrder_Success() {
+        // Given
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        doNothing().when(orderItemRepository).deleteByOrderId(1L);
+        doNothing().when(orderRepository).delete(any(Order.class));
 
         // When
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, null, null);
+        orderService.deleteOrder(1L);
 
         // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getContent()).isEmpty();
-        assertThat(result.getTotalElements()).isEqualTo(0);
+        verify(orderItemRepository).deleteByOrderId(1L);
+        verify(orderRepository).delete(testOrder);
+    }
+
+    @Test
+    @DisplayName("刪除訂單 - 訂單不存在拋出例外")
+    void deleteOrder_NotFound_ThrowsException() {
+        // Given
+        when(orderRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.deleteOrder(999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("訂單不存在");
+    }
+
+    @Test
+    @DisplayName("刪除訂單 - 非草稿狀態拋出例外")
+    void deleteOrder_NotDraft_ThrowsException() {
+        // Given
+        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.deleteOrder(2L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("只有草稿狀態的訂單可以操作");
     }
 
     // ========== completeOrder 測試 ==========
@@ -423,558 +468,17 @@ class OrderServiceTest {
         // When & Then
         assertThatThrownBy(() -> orderService.completeOrder(2L))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("只有草稿狀態的訂單可以完成");
+                .hasMessageContaining("只有草稿狀態的訂單可以操作");
 
         verify(orderRepository).findById(2L);
         verify(orderRepository, never()).save(any());
     }
 
-    // ========== addItem 測試 ==========
-
-    @Test
-    @DisplayName("加入商品 - 成功")
-    void addItem_Success() throws JsonProcessingException {
-        // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object resultObj = orderService.addItem(request);
-
-        // Then
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getProductName()).isEqualTo("招牌漢堡");
-        assertThat(result.getUnitPrice()).isEqualByComparingTo(new BigDecimal("59.00"));
-        verify(orderRepository).findById(1L);
-        verify(productRepository).findById(1L);
-        verify(orderItemRepository).save(any(OrderItem.class));
-    }
-
-    @Test
-    @DisplayName("加入商品 - 含數量成功")
-    void addItem_WithQuantity_Success() throws JsonProcessingException {
-        // Given
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object resultObj = orderService.addItem(addItemRequest);
-
-        // Then
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getQuantity()).isEqualTo(2);
-        // 小計: 59.00 * 2 = 118.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("118.00"));
-    }
-
-    @Test
-    @DisplayName("加入商品 - 選項加價正確計算")
-    void addItem_WithOptions_CalculatesCorrectAmount() throws JsonProcessingException {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加起司")
-                .priceAdjustment(new BigDecimal("10.00"))
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加起司")
-                        .priceAdjustment(new BigDecimal("10.00"))
-                        .build()
-        );
-
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{\"groupName\":\"加料\"}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object resultObj = orderService.addItem(request);
-
-        // Then
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
-        // 小計: (59.00 + 10.00) * 1 = 69.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("69.00"));
-    }
-
-    @Test
-    @DisplayName("加入商品 - 選項和數量計算小計")
-    void addItem_WithOptionsAndQuantity_CalculatesSubtotal() throws JsonProcessingException {
-        // Given
-        ProductOptionGroup group1 = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionGroup group2 = ProductOptionGroup.builder()
-                .id(2L)
-                .productId(1L)
-                .name("辣度")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value1 = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加起司")
-                .priceAdjustment(new BigDecimal("10.00"))
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value2 = ProductOptionValue.builder()
-                .id(2L)
-                .groupId(2L)
-                .name("小辣")
-                .priceAdjustment(BigDecimal.ZERO)
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加起司")
-                        .priceAdjustment(new BigDecimal("10.00"))
-                        .build(),
-                OrderItemOptionDTO.builder()
-                        .groupName("辣度")
-                        .valueName("小辣")
-                        .priceAdjustment(BigDecimal.ZERO)
-                        .build()
-        );
-
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(2)
-                .options(options)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group1, group2));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L, 2L)))
-                .thenReturn(List.of(value1, value2));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object resultObj = orderService.addItem(request);
-
-        // Then
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
-        // 小計: (59.00 + 10.00) * 2 = 138.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("138.00"));
-    }
-
-    @Test
-    @DisplayName("加入商品 - 訂單不存在拋出例外")
-    void addItem_OrderNotFound_ThrowsException() {
-        // Given
-        when(orderRepository.findById(anyLong())).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(addItemRequest))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("訂單不存在");
-
-        verify(orderRepository).findById(1L);
-        verify(productRepository, never()).findById(anyLong());
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 商品不存在拋出例外")
-    void addItem_ProductNotFound_ThrowsException() {
-        // Given
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(anyLong())).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(addItemRequest))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("商品不存在");
-
-        verify(orderRepository).findById(1L);
-        verify(productRepository).findById(1L);
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 商品已下架拋出例外")
-    void addItem_ProductInactive_ThrowsException() {
-        // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(2L)
-                .quantity(1)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(2L)).thenReturn(Optional.of(inactiveProduct));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("商品已下架");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 非草稿訂單拋出例外")
-    void addItem_OrderNotDraft_ThrowsException() {
-        // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(2L)
-                .productId(1L)
-                .quantity(1)
-                .build();
-
-        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("只有草稿狀態的訂單可以新增項目");
-
-        verify(productRepository, never()).findById(anyLong());
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    // ========== updateItem 測試 ==========
-
-    @Test
-    @DisplayName("更新項目 - 成功")
-    void updateItem_Success() {
-        // Given
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(updateItemRequest);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getQuantity()).isEqualTo(3);
-        assertThat(result.getNote()).isEqualTo("更新備註");
-        verify(orderItemRepository).findById(1L);
-        verify(orderItemRepository).save(any(OrderItem.class));
-    }
-
-    @Test
-    @DisplayName("更新項目 - 更新數量重新計算小計")
-    void updateItem_UpdateQuantity_RecalculatesSubtotal() {
-        // Given
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(1L)
-                .quantity(5)
-                .build();
-
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getQuantity()).isEqualTo(5);
-        // 小計: 59.00 * 5 = 295.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("295.00"));
-    }
-
-    @Test
-    @DisplayName("更新項目 - 更新選項重新計算小計")
-    void updateItem_WithOptions_RecalculatesSubtotal() throws JsonProcessingException {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加蛋")
-                .priceAdjustment(new BigDecimal("15.00"))
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加蛋")
-                        .priceAdjustment(new BigDecimal("15.00"))
-                        .build()
-        );
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(1L)
-                .options(options)
-                .build();
-
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("15.00"));
-        // 小計: (59.00 + 15.00) * 1 = 74.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("74.00"));
-    }
-
-    @Test
-    @DisplayName("更新項目 - 項目不存在拋出例外")
-    void updateItem_NotFound_ThrowsException() {
-        // Given
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(999L)
-                .quantity(2)
-                .build();
-
-        when(orderItemRepository.findById(anyLong())).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(request))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("訂單項目不存在");
-
-        verify(orderItemRepository).findById(999L);
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("更新項目 - 訂單不存在拋出例外")
-    void updateItem_OrderNotFound_ThrowsException() {
-        // Given
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(updateItemRequest))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("訂單不存在");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("更新項目 - 非草稿訂單拋出例外")
-    void updateItem_OrderNotDraft_ThrowsException() {
-        // Given
-        OrderItem itemInCompletedOrder = OrderItem.builder()
-                .id(10L)
-                .orderId(2L)
-                .productId(1L)
-                .productName("招牌漢堡")
-                .unitPrice(new BigDecimal("59.00"))
-                .quantity(1)
-                .subtotal(new BigDecimal("59.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .build();
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(10L)
-                .quantity(2)
-                .build();
-
-        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(itemInCompletedOrder));
-        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(request))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("只有草稿狀態的訂單可以修改項目");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    // ========== removeItem 測試 ==========
-
-    @Test
-    @DisplayName("移除項目 - 成功")
-    void removeItem_Success() {
-        // Given
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        doNothing().when(orderItemRepository).delete(any(OrderItem.class));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        orderService.removeItem(1L);
-
-        // Then
-        verify(orderItemRepository).findById(1L);
-        verify(orderItemRepository).delete(testOrderItem);
-        verify(orderRepository).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("移除項目 - 移除最後項目總金額歸零")
-    void removeItem_LastItem_OrderTotalZero() {
-        // Given
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        doNothing().when(orderItemRepository).delete(any(OrderItem.class));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
-            Order order = invocation.getArgument(0);
-            assertThat(order.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
-            return order;
-        });
-
-        // When
-        orderService.removeItem(1L);
-
-        // Then
-        verify(orderRepository).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("移除項目 - 項目不存在拋出例外")
-    void removeItem_NotFound_ThrowsException() {
-        // Given
-        when(orderItemRepository.findById(anyLong())).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.removeItem(999L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("訂單項目不存在");
-
-        verify(orderItemRepository).findById(999L);
-        verify(orderItemRepository, never()).delete(any());
-    }
-
-    @Test
-    @DisplayName("移除項目 - 訂單不存在拋出例外")
-    void removeItem_OrderNotFound_ThrowsException() {
-        // Given
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.empty());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.removeItem(1L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("訂單不存在");
-
-        verify(orderItemRepository, never()).delete(any());
-    }
-
-    @Test
-    @DisplayName("移除項目 - 非草稿訂單拋出例外")
-    void removeItem_OrderNotDraft_ThrowsException() {
-        // Given
-        OrderItem itemInCompletedOrder = OrderItem.builder()
-                .id(10L)
-                .orderId(2L)
-                .productId(1L)
-                .productName("招牌漢堡")
-                .unitPrice(new BigDecimal("59.00"))
-                .quantity(1)
-                .subtotal(new BigDecimal("59.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .build();
-
-        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(itemInCompletedOrder));
-        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.removeItem(10L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("只有草稿狀態的訂單可以刪除項目");
-
-        verify(orderItemRepository, never()).delete(any());
-    }
-
     // ========== 選項驗證測試 ==========
 
     @Test
-    @DisplayName("加入商品 - 有效選項驗證成功")
-    void addItem_WithValidOptions_Success() throws JsonProcessingException {
+    @DisplayName("建立訂單 - 含選項成功")
+    void createOrder_WithOptions_Success() throws JsonProcessingException {
         // Given
         ProductOptionGroup group = ProductOptionGroup.builder()
                 .id(1L)
@@ -999,14 +503,24 @@ class OrderServiceTest {
                         .build()
         );
 
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("SINGLE")
+                                .productId(1L)
+                                .quantity(1)
+                                .options(options)
+                                .build()
+                ))
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            if (o.getId() == null) {
+                o.setId(1L);
+            }
+            return o;
+        });
         when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
         when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
                 .thenReturn(List.of(group));
@@ -1020,22 +534,30 @@ class OrderServiceTest {
             item.setUpdatedAt(LocalDateTime.now());
             return item;
         });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+
+        SingleOrderItem savedItem = new SingleOrderItem();
+        savedItem.setId(1L);
+        savedItem.setOrderId(1L);
+        savedItem.setOptionsAmount(new BigDecimal("10.00"));
+        savedItem.setSubtotal(new BigDecimal("69.00"));
+        savedItem.setCreatedAt(LocalDateTime.now());
+        savedItem.setUpdatedAt(LocalDateTime.now());
+
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(savedItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
 
         // When
-        Object resultObj = orderService.addItem(request);
+        OrderDetailDTO result = orderService.createOrder(request);
 
         // Then
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
+        assertThat(result).isNotNull();
         verify(optionGroupRepository).findByProductIdAndIsActiveOrderBySortOrder(1L, true);
         verify(optionValueRepository).findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L));
     }
 
     @Test
-    @DisplayName("加入商品 - 無效選項群組名稱拋出例外")
-    void addItem_WithInvalidGroupName_ThrowsException() {
+    @DisplayName("建立訂單 - 無效選項群組拋出例外")
+    void createOrder_WithInvalidOptionGroup_ThrowsException() {
         // Given
         ProductOptionGroup group = ProductOptionGroup.builder()
                 .id(1L)
@@ -1052,265 +574,37 @@ class OrderServiceTest {
                         .build()
         );
 
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("SINGLE")
+                                .productId(1L)
+                                .quantity(1)
+                                .options(options)
+                                .build()
+                ))
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(1L);
+            return o;
+        });
         when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
         when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
                 .thenReturn(List.of(group));
 
         // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
+        assertThatThrownBy(() -> orderService.createOrder(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("選項群組不存在: 不存在的群組");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 無效選項值名稱拋出例外")
-    void addItem_WithInvalidValueName_ThrowsException() {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加起司")
-                .priceAdjustment(new BigDecimal("10.00"))
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("不存在的選項")
-                        .priceAdjustment(new BigDecimal("10.00"))
-                        .build()
-        );
-
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("選項值不存在: 不存在的選項");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 商品無選項但傳入選項拋出例外")
-    void addItem_ProductHasNoOptions_ThrowsException() {
-        // Given
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加起司")
-                        .priceAdjustment(new BigDecimal("10.00"))
-                        .build()
-        );
-
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(Collections.emptyList());
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("此商品沒有可用的選項");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入商品 - 價格不一致使用資料庫價格")
-    void addItem_WithMismatchedPrice_UsesDbPrice() throws JsonProcessingException {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加起司")
-                .priceAdjustment(new BigDecimal("10.00"))  // 資料庫價格
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加起司")
-                        .priceAdjustment(new BigDecimal("5.00"))  // 客戶端傳入錯誤價格
-                        .build()
-        );
-
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .options(options)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object resultObj = orderService.addItem(request);
-
-        // Then - 應使用資料庫價格 10.00，而非客戶端傳入的 5.00
-        assertThat(resultObj).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO result = (OrderItemDTO) resultObj;
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
-        // 小計: (59.00 + 10.00) * 1 = 69.00
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("69.00"));
-    }
-
-    @Test
-    @DisplayName("更新項目 - 有效選項驗證成功")
-    void updateItem_WithValidOptions_Success() throws JsonProcessingException {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加蛋")
-                .priceAdjustment(new BigDecimal("15.00"))
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加蛋")
-                        .priceAdjustment(new BigDecimal("15.00"))
-                        .build()
-        );
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(1L)
-                .options(options)
-                .build();
-
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(testOrderItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("15.00"));
-        verify(optionGroupRepository).findByProductIdAndIsActiveOrderBySortOrder(1L, true);
-        verify(optionValueRepository).findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L));
-    }
-
-    @Test
-    @DisplayName("更新項目 - 無效選項群組拋出例外")
-    void updateItem_WithInvalidOptionGroup_ThrowsException() {
-        // Given
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("無效群組")
-                        .valueName("加蛋")
-                        .priceAdjustment(new BigDecimal("15.00"))
-                        .build()
-        );
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(1L)
-                .options(options)
-                .build();
-
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(testOrderItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("選項群組不存在: 無效群組");
-
-        verify(orderItemRepository, never()).save(any());
     }
 
     // ========== 套餐相關測試 ==========
 
     @Test
-    @DisplayName("加入套餐 - 成功 (新結構：COMBO 標題行 + COMBO_ITEM 商品行)")
-    @SuppressWarnings("unchecked")
-    void addCombo_Success() {
+    @DisplayName("建立訂單 - 含套餐成功")
+    void createOrder_WithCombo_Success() throws JsonProcessingException {
         // Given
         Combo combo = Combo.builder()
                 .id(1L)
@@ -1326,13 +620,6 @@ class OrderServiceTest {
                 .isActive(true)
                 .build();
 
-        Product product2 = Product.builder()
-                .id(11L)
-                .name("薯條")
-                .price(new BigDecimal("39.00"))
-                .isActive(true)
-                .build();
-
         ComboItem comboItem1 = ComboItem.builder()
                 .id(1L)
                 .comboId(1L)
@@ -1342,27 +629,25 @@ class OrderServiceTest {
                 .sortOrder(1)
                 .build();
 
-        ComboItem comboItem2 = ComboItem.builder()
-                .id(2L)
-                .comboId(1L)
-                .productId(11L)
-                .productName("薯條")
-                .quantity(1)
-                .sortOrder(2)
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("COMBO")
+                                .comboId(1L)
+                                .build()
+                ))
                 .build();
 
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .comboId(1L)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            if (o.getId() == null) {
+                o.setId(1L);
+            }
+            return o;
+        });
         when(comboRepository.findById(1L)).thenReturn(Optional.of(combo));
-        when(comboItemRepository.findByComboIdOrderBySortOrder(1L))
-                .thenReturn(List.of(comboItem1, comboItem2));
+        when(comboItemRepository.findByComboIdOrderBySortOrder(1L)).thenReturn(List.of(comboItem1));
         when(productRepository.findById(10L)).thenReturn(Optional.of(product1));
-        when(productRepository.findById(11L)).thenReturn(Optional.of(product2));
-        when(orderItemRepository.findMaxGroupSequenceByOrderId(1L)).thenReturn(null);
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
             OrderItem item = invocation.getArgument(0);
             item.setId(System.nanoTime());
@@ -1370,75 +655,73 @@ class OrderServiceTest {
             item.setUpdatedAt(LocalDateTime.now());
             return item;
         });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+
+        ComboOrderItem comboHeader = new ComboOrderItem();
+        comboHeader.setId(1L);
+        comboHeader.setOrderId(1L);
+        comboHeader.setComboId(1L);
+        comboHeader.setComboName("經典套餐");
+        comboHeader.setComboPrice(new BigDecimal("199.00"));
+        comboHeader.setSubtotal(new BigDecimal("199.00"));
+        comboHeader.setGroupSequence(1);
+        comboHeader.setCreatedAt(LocalDateTime.now());
+        comboHeader.setUpdatedAt(LocalDateTime.now());
+
+        ComboItemOrderItem comboItemOrder = new ComboItemOrderItem();
+        comboItemOrder.setId(2L);
+        comboItemOrder.setOrderId(1L);
+        comboItemOrder.setComboId(1L);
+        comboItemOrder.setGroupSequence(1);
+        comboItemOrder.setProductId(10L);
+        comboItemOrder.setProductName("漢堡");
+        comboItemOrder.setQuantity(1);
+        comboItemOrder.setSubtotal(BigDecimal.ZERO);
+        comboItemOrder.setCreatedAt(LocalDateTime.now());
+        comboItemOrder.setUpdatedAt(LocalDateTime.now());
+
+        when(orderItemRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(comboHeader, comboItemOrder));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
 
         // When
-        Object result = orderService.addItem(request);
+        OrderDetailDTO result = orderService.createOrder(request);
 
         // Then
-        assertThat(result).isInstanceOf(List.class);
-        List<OrderItemDTO> items = (List<OrderItemDTO>) result;
-        assertThat(items).hasSize(3); // 1 COMBO + 2 COMBO_ITEM
-
-        // 第一個項目應為 COMBO 標題行
-        OrderItemDTO headerItem = items.get(0);
-        assertThat(headerItem.getItemType()).isEqualTo("COMBO");
-        assertThat(headerItem.getProductId()).isNull();
-        assertThat(headerItem.getProductName()).isNull();
-        assertThat(headerItem.getComboId()).isEqualTo(1L);
-        assertThat(headerItem.getComboName()).isEqualTo("經典套餐");
-        assertThat(headerItem.getGroupSequence()).isEqualTo(1);
-        assertThat(headerItem.getComboPrice()).isEqualByComparingTo(new BigDecimal("199.00"));
-        assertThat(headerItem.getUnitPrice()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(headerItem.getSubtotal()).isEqualByComparingTo(new BigDecimal("199.00"));
-
-        // 第二個項目應為 COMBO_ITEM 商品行
-        OrderItemDTO firstProductItem = items.get(1);
-        assertThat(firstProductItem.getItemType()).isEqualTo("COMBO_ITEM");
-        assertThat(firstProductItem.getProductId()).isEqualTo(10L);
-        assertThat(firstProductItem.getProductName()).isEqualTo("漢堡");
-        assertThat(firstProductItem.getComboId()).isEqualTo(1L);
-        assertThat(firstProductItem.getComboName()).isNull(); // 互斥
-        assertThat(firstProductItem.getComboPrice()).isNull();
-        assertThat(firstProductItem.getUnitPrice()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(firstProductItem.getGroupSequence()).isEqualTo(1);
-
-        // 第三個項目應為 COMBO_ITEM 商品行
-        OrderItemDTO secondProductItem = items.get(2);
-        assertThat(secondProductItem.getItemType()).isEqualTo("COMBO_ITEM");
-        assertThat(secondProductItem.getProductId()).isEqualTo(11L);
-        assertThat(secondProductItem.getProductName()).isEqualTo("薯條");
-        assertThat(secondProductItem.getComboName()).isNull();
-        assertThat(secondProductItem.getGroupSequence()).isEqualTo(1);
-
+        assertThat(result).isNotNull();
+        assertThat(result.getItems()).hasSize(2); // 1 COMBO + 1 COMBO_ITEM
         verify(comboRepository).findById(1L);
         verify(comboItemRepository).findByComboIdOrderBySortOrder(1L);
-        verify(orderItemRepository, times(3)).save(any(OrderItem.class)); // 1 COMBO + 2 COMBO_ITEM
+        verify(orderItemRepository, times(2)).save(any(OrderItem.class));
     }
 
     @Test
-    @DisplayName("加入套餐 - 套餐不存在拋出例外")
-    void addCombo_ComboNotFound_ThrowsException() {
+    @DisplayName("建立訂單 - 套餐不存在拋出例外")
+    void createOrder_ComboNotFound_ThrowsException() {
         // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .comboId(999L)
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("COMBO")
+                                .comboId(999L)
+                                .build()
+                ))
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(1L);
+            return o;
+        });
         when(comboRepository.findById(999L)).thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
+        assertThatThrownBy(() -> orderService.createOrder(request))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("套餐不存在");
-
-        verify(orderItemRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("加入套餐 - 套餐已停用拋出例外")
-    void addCombo_ComboInactive_ThrowsException() {
+    @DisplayName("建立訂單 - 套餐已停用拋出例外")
+    void createOrder_ComboInactive_ThrowsException() {
         // Given
         Combo inactiveCombo = Combo.builder()
                 .id(1L)
@@ -1447,393 +730,25 @@ class OrderServiceTest {
                 .isActive(false)
                 .build();
 
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .comboId(1L)
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .items(List.of(
+                        OrderItemRequest.builder()
+                                .type("COMBO")
+                                .comboId(1L)
+                                .build()
+                ))
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            o.setId(1L);
+            return o;
+        });
         when(comboRepository.findById(1L)).thenReturn(Optional.of(inactiveCombo));
 
         // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
+        assertThatThrownBy(() -> orderService.createOrder(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("套餐已停用");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("加入單點商品 - 回傳正確 itemType 和 groupSequence")
-    void addSingleItem_ReturnsCorrectItemTypeAndGroupSequence() {
-        // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .productId(1L)
-                .quantity(1)
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(orderItemRepository.findMaxGroupSequenceByOrderId(1L)).thenReturn(2);
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> {
-            OrderItem item = invocation.getArgument(0);
-            item.setId(1L);
-            item.setCreatedAt(LocalDateTime.now());
-            item.setUpdatedAt(LocalDateTime.now());
-            return item;
-        });
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        Object result = orderService.addItem(request);
-
-        // Then
-        assertThat(result).isInstanceOf(OrderItemDTO.class);
-        OrderItemDTO item = (OrderItemDTO) result;
-        assertThat(item.getItemType()).isEqualTo("SINGLE");
-        assertThat(item.getGroupSequence()).isEqualTo(3); // 2 + 1
-        assertThat(item.getComboId()).isNull();
-        assertThat(item.getComboName()).isNull();
-        assertThat(item.getComboPrice()).isNull();
-    }
-
-    @Test
-    @DisplayName("移除套餐標題行 (COMBO) - 刪除整組")
-    void removeComboHeader_DeletesEntireGroup() {
-        // Given - 套餐標題行 (COMBO)
-        OrderItem comboHeader = OrderItem.builder()
-                .id(10L)
-                .orderId(1L)
-                .productId(null) // COMBO 標題行 productId 為 NULL
-                .productName(null)
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(new BigDecimal("199.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO")
-                .comboId(1L)
-                .comboName("經典套餐")
-                .groupSequence(1)
-                .comboPrice(new BigDecimal("199.00"))
-                .build();
-
-        // COMBO_ITEM 商品行
-        OrderItem comboItem1 = OrderItem.builder()
-                .id(11L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null) // 互斥
-                .groupSequence(1)
-                .build();
-
-        OrderItem comboItem2 = OrderItem.builder()
-                .id(12L)
-                .orderId(1L)
-                .productId(2L)
-                .productName("薯條")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null)
-                .groupSequence(1)
-                .build();
-
-        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(comboHeader));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.findByOrderIdAndGroupSequence(1L, 1))
-                .thenReturn(List.of(comboHeader, comboItem1, comboItem2));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        orderService.removeItem(10L);
-
-        // Then
-        verify(orderItemRepository).deleteAll(List.of(comboHeader, comboItem1, comboItem2));
-        verify(orderRepository).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("移除套餐商品行 (COMBO_ITEM) - 刪除整組")
-    void removeComboItem_DeletesEntireGroup() {
-        // Given - 套餐標題行 (COMBO)
-        OrderItem comboHeader = OrderItem.builder()
-                .id(10L)
-                .orderId(1L)
-                .productId(null)
-                .productName(null)
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(new BigDecimal("199.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO")
-                .comboId(1L)
-                .comboName("經典套餐")
-                .groupSequence(1)
-                .comboPrice(new BigDecimal("199.00"))
-                .build();
-
-        // COMBO_ITEM 商品行 (被刪除的項目)
-        OrderItem comboItem1 = OrderItem.builder()
-                .id(11L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null)
-                .groupSequence(1)
-                .build();
-
-        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem1));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.findByOrderIdAndGroupSequence(1L, 1))
-                .thenReturn(List.of(comboHeader, comboItem1));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When - 刪除 COMBO_ITEM 應該刪除整組
-        orderService.removeItem(11L);
-
-        // Then
-        verify(orderItemRepository).deleteAll(List.of(comboHeader, comboItem1));
-        verify(orderRepository).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("移除單點項目 - 只刪除該項目")
-    void removeSingleItem_DeletesOnlyThatItem() {
-        // Given
-        OrderItem singleItem = OrderItem.builder()
-                .id(1L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("招牌漢堡")
-                .unitPrice(new BigDecimal("59.00"))
-                .quantity(1)
-                .subtotal(new BigDecimal("59.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("SINGLE")
-                .groupSequence(1)
-                .build();
-
-        when(orderItemRepository.findById(1L)).thenReturn(Optional.of(singleItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        doNothing().when(orderItemRepository).delete(any(OrderItem.class));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        // When
-        orderService.removeItem(1L);
-
-        // Then
-        verify(orderItemRepository).delete(singleItem);
-        verify(orderItemRepository, never()).deleteAll(anyList());
-        verify(orderRepository).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("加入項目 - 未指定 productId 或 comboId 拋出例外")
-    void addItem_NoProductOrCombo_ThrowsException() {
-        // Given
-        AddItemRequest request = AddItemRequest.builder()
-                .orderId(1L)
-                .build();
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.addItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("必須指定 productId 或 comboId");
-    }
-
-    // ========== 更新項目限制測試 (新結構) ==========
-
-    @Test
-    @DisplayName("更新項目 - 更新 COMBO 標題行拋出例外")
-    void updateItem_ComboHeader_ThrowsException() {
-        // Given - COMBO 標題行不允許更新
-        OrderItem comboHeader = OrderItem.builder()
-                .id(10L)
-                .orderId(1L)
-                .productId(null)
-                .productName(null)
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(new BigDecimal("199.00"))
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO")
-                .comboId(1L)
-                .comboName("經典套餐")
-                .groupSequence(1)
-                .comboPrice(new BigDecimal("199.00"))
-                .build();
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(10L)
-                .note("更新備註")
-                .build();
-
-        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(comboHeader));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("套餐標題行不允許更新");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("更新項目 - COMBO_ITEM 更新數量拋出例外")
-    void updateItem_ComboItem_UpdateQuantity_ThrowsException() {
-        // Given - COMBO_ITEM 不允許更新數量
-        OrderItem comboItem = OrderItem.builder()
-                .id(11L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null)
-                .groupSequence(1)
-                .build();
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(11L)
-                .quantity(3) // 試圖更新數量
-                .build();
-
-        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-
-        // When & Then
-        assertThatThrownBy(() -> orderService.updateItem(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("套餐商品的數量由套餐定義，不允許單獨修改");
-
-        verify(orderItemRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("更新項目 - COMBO_ITEM 更新選項成功")
-    void updateItem_ComboItem_UpdateOptions_Success() throws JsonProcessingException {
-        // Given - COMBO_ITEM 可以更新選項
-        OrderItem comboItem = OrderItem.builder()
-                .id(11L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null)
-                .groupSequence(1)
-                .build();
-
-        ProductOptionGroup group = ProductOptionGroup.builder()
-                .id(1L)
-                .productId(1L)
-                .name("加料")
-                .isActive(true)
-                .build();
-
-        ProductOptionValue value = ProductOptionValue.builder()
-                .id(1L)
-                .groupId(1L)
-                .name("加起司")
-                .priceAdjustment(new BigDecimal("10.00"))
-                .isActive(true)
-                .build();
-
-        List<OrderItemOptionDTO> options = List.of(
-                OrderItemOptionDTO.builder()
-                        .groupName("加料")
-                        .valueName("加起司")
-                        .priceAdjustment(new BigDecimal("10.00"))
-                        .build()
-        );
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(11L)
-                .options(options)
-                .build();
-
-        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
-        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
-                .thenReturn(List.of(group));
-        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
-                .thenReturn(List.of(value));
-        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(comboItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
-        // COMBO_ITEM 的 subtotal = optionsAmount
-        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("10.00"));
-        verify(orderItemRepository).save(any(OrderItem.class));
-    }
-
-    @Test
-    @DisplayName("更新項目 - COMBO_ITEM 更新備註成功")
-    void updateItem_ComboItem_UpdateNote_Success() {
-        // Given - COMBO_ITEM 可以更新備註
-        OrderItem comboItem = OrderItem.builder()
-                .id(11L)
-                .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(BigDecimal.ZERO)
-                .quantity(1)
-                .subtotal(BigDecimal.ZERO)
-                .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO_ITEM")
-                .comboId(1L)
-                .comboName(null)
-                .groupSequence(1)
-                .build();
-
-        UpdateItemRequest request = UpdateItemRequest.builder()
-                .itemId(11L)
-                .note("不要洋蔥")
-                .build();
-
-        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(comboItem));
-
-        // When
-        OrderItemDTO result = orderService.updateItem(request);
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getNote()).isEqualTo("不要洋蔥");
-        verify(orderItemRepository).save(any(OrderItem.class));
     }
 }

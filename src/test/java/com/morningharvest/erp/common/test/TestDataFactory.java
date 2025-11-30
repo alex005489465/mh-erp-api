@@ -2,7 +2,7 @@ package com.morningharvest.erp.common.test;
 
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.entity.Order;
-import com.morningharvest.erp.order.entity.OrderItem;
+import com.morningharvest.erp.order.entity.SingleOrderItem;
 import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
 import com.morningharvest.erp.product.entity.ProductOptionGroup;
@@ -143,18 +143,18 @@ public final class TestDataFactory {
                 .totalAmount(BigDecimal.ZERO);
     }
 
-    // ===== OrderItem =====
+    // ===== SingleOrderItem =====
 
     /**
-     * 建立預設的訂單項目 Builder
-     * 預設值: productName="測試商品", unitPrice=59.00, quantity=1, subtotal=59.00, optionsAmount=0
+     * 建立預設的單點訂單項目 Builder
+     * 預設值: productName="測試商品", unitPrice=59.00, quantity=1, optionsAmount=0
+     * 注意: subtotal 由 calculateSubtotal() 計算
      */
-    public static OrderItem.OrderItemBuilder defaultOrderItem() {
-        return OrderItem.builder()
+    public static SingleOrderItem.SingleOrderItemBuilder defaultSingleOrderItem() {
+        return SingleOrderItem.builder()
                 .productName("測試商品")
                 .unitPrice(new BigDecimal("59.00"))
                 .quantity(1)
-                .subtotal(new BigDecimal("59.00"))
                 .optionsAmount(BigDecimal.ZERO);
     }
 
