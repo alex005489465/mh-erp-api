@@ -417,7 +417,7 @@ class OrderControllerIntegrationTest {
     @Test
     @DisplayName("POST /api/orders/items/add - 參數驗證失敗 (code=2001)")
     void addItem_ValidationError() throws Exception {
-        // 缺少必填欄位 orderId 和 productId
+        // 缺少必填欄位 orderId (productId 現在非必填，因為可以用 comboId)
         String invalidRequest = "{ \"quantity\": 1 }";
 
         mockMvc.perform(post("/api/orders/items/add")
@@ -426,8 +426,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(2001))
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.data.orderId").exists())
-                .andExpect(jsonPath("$.data.productId").exists());
+                .andExpect(jsonPath("$.data.orderId").exists());
     }
 
     @Test

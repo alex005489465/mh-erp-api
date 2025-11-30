@@ -111,16 +111,23 @@ public class OrderController {
     // ========== 訂單項目操作 ==========
 
     /**
-     * 加入商品到訂單
+     * 加入項目到訂單（單點商品或套餐）
+     * - 單點商品: 設定 productId，回傳單一 OrderItemDTO
+     * - 套餐: 設定 comboId，回傳 List<OrderItemDTO>
      */
     @PostMapping("/items/add")
-    @Operation(summary = "加入商品", description = "將商品加入到訂單中")
-    public ApiResponse<OrderItemDTO> addItem(
+    @Operation(summary = "加入項目", description = "將單點商品或套餐加入到訂單中。單點設定 productId，套餐設定 comboId")
+    public ApiResponse<Object> addItem(
             @Valid @RequestBody AddItemRequest request
     ) {
-        log.info("加入商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
-        OrderItemDTO item = orderService.addItem(request);
-        return ApiResponse.success("商品已加入訂單", item);
+        if (request.getComboId() != null) {
+            log.info("加入套餐到訂單, orderId: {}, comboId: {}", request.getOrderId(), request.getComboId());
+        } else {
+            log.info("加入單點商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
+        }
+        Object result = orderService.addItem(request);
+        String message = (request.getComboId() != null) ? "套餐已加入訂單" : "商品已加入訂單";
+        return ApiResponse.success(message, result);
     }
 
     /**
@@ -138,9 +145,11 @@ public class OrderController {
 
     /**
      * 移除訂單項目
+     * - 單點商品: 只刪除該項目
+     * - 套餐商品: 自動刪除整組套餐 (同一 groupSequence 的所有項目)
      */
     @PostMapping("/items/remove")
-    @Operation(summary = "移除項目", description = "從訂單中移除項目")
+    @Operation(summary = "移除項目", description = "從訂單中移除項目。單點商品只刪除該項目，套餐商品會自動刪除整組")
     public ApiResponse<Void> removeItem(
             @Parameter(description = "項目 ID", required = true, example = "1")
             @RequestParam("id") Long id

@@ -49,6 +49,22 @@ public class OrderItem {
     @Column(name = "note", length = 200)
     private String note;
 
+    @Column(name = "item_type", nullable = false, length = 10)
+    @Builder.Default
+    private String itemType = "SINGLE";
+
+    @Column(name = "combo_id")
+    private Long comboId;
+
+    @Column(name = "combo_name", length = 100)
+    private String comboName;
+
+    @Column(name = "group_sequence")
+    private Integer groupSequence;
+
+    @Column(name = "combo_price", precision = 10, scale = 2)
+    private BigDecimal comboPrice;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -67,11 +83,18 @@ public class OrderItem {
     }
 
     /**
-     * 計算小計: (unit_price + options_amount) * quantity
+     * 計算小計
+     * - 單點項目: (unit_price + options_amount) * quantity
+     * - 套餐項目: combo_price (僅主項目有值) + options_amount
      */
     public void calculateSubtotal() {
-        this.subtotal = this.unitPrice
-                .add(this.optionsAmount)
-                .multiply(BigDecimal.valueOf(this.quantity));
+        if ("COMBO".equals(this.itemType)) {
+            BigDecimal basePrice = (this.comboPrice != null) ? this.comboPrice : BigDecimal.ZERO;
+            this.subtotal = basePrice.add(this.optionsAmount);
+        } else {
+            this.subtotal = this.unitPrice
+                    .add(this.optionsAmount)
+                    .multiply(BigDecimal.valueOf(this.quantity));
+        }
     }
 }

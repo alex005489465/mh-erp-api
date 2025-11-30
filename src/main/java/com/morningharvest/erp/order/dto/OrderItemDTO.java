@@ -32,6 +32,11 @@ public class OrderItemDTO {
     private List<OrderItemOptionDTO> options;
     private BigDecimal optionsAmount;
     private String note;
+    private String itemType;
+    private Long comboId;
+    private String comboName;
+    private Integer groupSequence;
+    private BigDecimal comboPrice;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -47,6 +52,11 @@ public class OrderItemDTO {
                 .options(parseOptions(item.getOptions()))
                 .optionsAmount(item.getOptionsAmount())
                 .note(item.getNote())
+                .itemType(item.getItemType())
+                .comboId(item.getComboId())
+                .comboName(item.getComboName())
+                .groupSequence(item.getGroupSequence())
+                .comboPrice(item.getComboPrice())
                 .createdAt(item.getCreatedAt())
                 .updatedAt(item.getUpdatedAt())
                 .build();

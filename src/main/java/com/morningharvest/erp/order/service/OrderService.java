@@ -2,6 +2,10 @@ package com.morningharvest.erp.order.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.morningharvest.erp.combo.entity.Combo;
+import com.morningharvest.erp.combo.entity.ComboItem;
+import com.morningharvest.erp.combo.repository.ComboItemRepository;
+import com.morningharvest.erp.combo.repository.ComboRepository;
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
@@ -38,6 +42,8 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final ProductOptionGroupRepository optionGroupRepository;
     private final ProductOptionValueRepository optionValueRepository;
+    private final ComboRepository comboRepository;
+    private final ComboItemRepository comboItemRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -124,11 +130,28 @@ public class OrderService {
     }
 
     /**
-     * 加入商品到訂單
+     * 加入項目到訂單（單點或套餐）
+     * - 若 comboId 有值：加入套餐
+     * - 若 productId 有值：加入單點商品
+     *
+     * @return 單點返回 OrderItemDTO，套餐返回 List<OrderItemDTO>
      */
     @Transactional
-    public OrderItemDTO addItem(AddItemRequest request) {
-        log.info("加入商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
+    public Object addItem(AddItemRequest request) {
+        if (request.getComboId() != null) {
+            return addComboInternal(request);
+        } else if (request.getProductId() != null) {
+            return addSingleItemInternal(request);
+        } else {
+            throw new IllegalArgumentException("必須指定 productId 或 comboId");
+        }
+    }
+
+    /**
+     * 加入單點商品到訂單
+     */
+    private OrderItemDTO addSingleItemInternal(AddItemRequest request) {
+        log.info("加入單點商品到訂單, orderId: {}, productId: {}", request.getOrderId(), request.getProductId());
 
         // 驗證訂單存在且為草稿狀態
         Order order = orderRepository.findById(request.getOrderId())
@@ -153,6 +176,10 @@ public class OrderService {
         // 計算選項加價（使用驗證後的選項）
         BigDecimal optionsAmount = calculateOptionsAmount(validatedOptions);
 
+        // 計算下一個 group_sequence
+        Integer maxGroupSequence = orderItemRepository.findMaxGroupSequenceByOrderId(request.getOrderId());
+        int nextGroupSequence = (maxGroupSequence != null) ? maxGroupSequence + 1 : 1;
+
         // 建立訂單項目
         OrderItem item = OrderItem.builder()
                 .orderId(request.getOrderId())
@@ -163,17 +190,121 @@ public class OrderService {
                 .options(serializeOptions(validatedOptions))
                 .optionsAmount(optionsAmount)
                 .note(request.getNote())
+                .itemType("SINGLE")
+                .groupSequence(nextGroupSequence)
                 .build();
 
         item.calculateSubtotal();
 
         OrderItem saved = orderItemRepository.save(item);
-        log.info("訂單項目新增成功, id: {}", saved.getId());
+        log.info("單點商品新增成功, id: {}, groupSequence: {}", saved.getId(), nextGroupSequence);
 
         // 重新計算訂單總金額
         recalculateOrderTotal(order);
 
         return OrderItemDTO.from(saved);
+    }
+
+    /**
+     * 加入套餐到訂單
+     */
+    private List<OrderItemDTO> addComboInternal(AddItemRequest request) {
+        log.info("加入套餐到訂單, orderId: {}, comboId: {}", request.getOrderId(), request.getComboId());
+
+        // 驗證訂單存在且為草稿狀態
+        Order order = orderRepository.findById(request.getOrderId())
+                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + request.getOrderId()));
+
+        if (!"DRAFT".equals(order.getStatus())) {
+            throw new IllegalStateException("只有草稿狀態的訂單可以新增項目");
+        }
+
+        // 驗證套餐存在且已啟用
+        Combo combo = comboRepository.findById(request.getComboId())
+                .orElseThrow(() -> new ResourceNotFoundException("套餐不存在: " + request.getComboId()));
+
+        if (!combo.getIsActive()) {
+            throw new IllegalArgumentException("套餐已停用: " + combo.getName());
+        }
+
+        // 取得套餐項目列表
+        List<ComboItem> comboItems = comboItemRepository.findByComboIdOrderBySortOrder(request.getComboId());
+        if (comboItems.isEmpty()) {
+            throw new IllegalArgumentException("套餐沒有包含任何商品: " + combo.getName());
+        }
+
+        // 計算下一個 group_sequence
+        Integer maxGroupSequence = orderItemRepository.findMaxGroupSequenceByOrderId(request.getOrderId());
+        int nextGroupSequence = (maxGroupSequence != null) ? maxGroupSequence + 1 : 1;
+
+        // 建立選項對應表 (productId -> ComboItemOptionsDTO)
+        Map<Long, ComboItemOptionsDTO> optionsMap = buildComboItemOptionsMap(request.getComboItemOptions());
+
+        // 為每個套餐項目建立 OrderItem
+        List<OrderItem> savedItems = new ArrayList<>();
+        boolean isFirst = true;
+
+        for (ComboItem comboItem : comboItems) {
+            // 驗證商品存在且已上架
+            Product product = productRepository.findById(comboItem.getProductId())
+                    .orElseThrow(() -> new ResourceNotFoundException("套餐內商品不存在: " + comboItem.getProductId()));
+
+            if (!product.getIsActive()) {
+                throw new IllegalArgumentException("套餐內商品已下架: " + product.getName());
+            }
+
+            // 取得該商品的選項配置
+            ComboItemOptionsDTO itemOptions = optionsMap.get(comboItem.getProductId());
+            List<OrderItemOptionDTO> validatedOptions = null;
+            BigDecimal optionsAmount = BigDecimal.ZERO;
+
+            if (itemOptions != null && itemOptions.getOptions() != null && !itemOptions.getOptions().isEmpty()) {
+                validatedOptions = validateAndProcessOptions(
+                        product.getId(), product.getName(), itemOptions.getOptions());
+                optionsAmount = calculateOptionsAmount(validatedOptions);
+            }
+
+            // 建立 OrderItem
+            OrderItem orderItem = OrderItem.builder()
+                    .orderId(request.getOrderId())
+                    .productId(product.getId())
+                    .productName(product.getName())
+                    .unitPrice(product.getPrice())
+                    .quantity(comboItem.getQuantity())
+                    .options(serializeOptions(validatedOptions))
+                    .optionsAmount(optionsAmount)
+                    .note(itemOptions != null ? itemOptions.getNote() : null)
+                    .itemType("COMBO")
+                    .comboId(combo.getId())
+                    .comboName(combo.getName())
+                    .groupSequence(nextGroupSequence)
+                    .comboPrice(isFirst ? combo.getPrice() : null)
+                    .build();
+
+            orderItem.calculateSubtotal();
+            savedItems.add(orderItemRepository.save(orderItem));
+            isFirst = false;
+        }
+
+        log.info("套餐新增成功, comboId: {}, groupSequence: {}, itemCount: {}",
+                combo.getId(), nextGroupSequence, savedItems.size());
+
+        // 重新計算訂單總金額
+        recalculateOrderTotal(order);
+
+        return savedItems.stream().map(OrderItemDTO::from).toList();
+    }
+
+    /**
+     * 建立套餐商品選項對應表
+     */
+    private Map<Long, ComboItemOptionsDTO> buildComboItemOptionsMap(List<ComboItemOptionsDTO> comboItemOptions) {
+        if (comboItemOptions == null || comboItemOptions.isEmpty()) {
+            return Map.of();
+        }
+        return comboItemOptions.stream()
+                .filter(opt -> opt.getProductId() != null)
+                .collect(Collectors.toMap(ComboItemOptionsDTO::getProductId, opt -> opt, (a, b) -> a));
     }
 
     /**
@@ -231,6 +362,8 @@ public class OrderService {
 
     /**
      * 移除訂單項目
+     * - 單點商品: 只刪除該項目
+     * - 套餐商品: 刪除整組 (同一 groupSequence 的所有項目)
      */
     @Transactional
     public void removeItem(Long itemId) {
@@ -247,8 +380,18 @@ public class OrderService {
             throw new IllegalStateException("只有草稿狀態的訂單可以刪除項目");
         }
 
-        orderItemRepository.delete(item);
-        log.info("訂單項目移除成功, itemId: {}", itemId);
+        if ("COMBO".equals(item.getItemType())) {
+            // 套餐項目：刪除整組 (同一 groupSequence 的所有項目)
+            List<OrderItem> groupItems = orderItemRepository.findByOrderIdAndGroupSequence(
+                    item.getOrderId(), item.getGroupSequence());
+            orderItemRepository.deleteAll(groupItems);
+            log.info("套餐整組移除成功, orderId: {}, groupSequence: {}, deletedCount: {}",
+                    item.getOrderId(), item.getGroupSequence(), groupItems.size());
+        } else {
+            // 單點項目：只刪除該項目
+            orderItemRepository.delete(item);
+            log.info("單點項目移除成功, itemId: {}", itemId);
+        }
 
         // 重新計算訂單總金額
         recalculateOrderTotal(order);
