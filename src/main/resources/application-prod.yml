@@ -44,8 +44,10 @@ logging:
     com.morningharvest.erp: INFO
   file:
     name: logs/erp-api.log
-    max-size: 10MB
-    max-history: 30
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
 
 # Actuator 生產環境設定
 management:
@@ -70,6 +72,6 @@ storage:
   type: minio
   minio:
     endpoint: ${STORAGE_MINIO_ENDPOINT}
-    access-key: ${STORAGE_MINIO_ACCESSKEY}
-    secret-key: ${STORAGE_MINIO_SECRETKEY}
-    public-url: ${STORAGE_MINIO_PUBLICURL:${STORAGE_MINIO_ENDPOINT}}  # 對外訪問 URL,預設使用 endpoint
+    access-key: ${STORAGE_MINIO_ACCESS_KEY}
+    secret-key: ${STORAGE_MINIO_SECRET_KEY}
+    public-url: ${STORAGE_MINIO_PUBLIC_URL}
