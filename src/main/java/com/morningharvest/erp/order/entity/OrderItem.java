@@ -22,10 +22,10 @@ public class OrderItem {
     @Column(name = "order_id", nullable = false)
     private Long orderId;
 
-    @Column(name = "product_id", nullable = false)
+    @Column(name = "product_id")
     private Long productId;
 
-    @Column(name = "product_name", nullable = false, length = 100)
+    @Column(name = "product_name", length = 100)
     private String productName;
 
     @Column(name = "unit_price", nullable = false, precision = 10, scale = 2)
@@ -49,7 +49,7 @@ public class OrderItem {
     @Column(name = "note", length = 200)
     private String note;
 
-    @Column(name = "item_type", nullable = false, length = 10)
+    @Column(name = "item_type", nullable = false, length = 15)
     @Builder.Default
     private String itemType = "SINGLE";
 
@@ -84,17 +84,25 @@ public class OrderItem {
 
     /**
      * 計算小計
-     * - 單點項目: (unit_price + options_amount) * quantity
-     * - 套餐項目: combo_price (僅主項目有值) + options_amount
+     * - SINGLE (單點): (unitPrice + optionsAmount) * quantity
+     * - COMBO (套餐標題): comboPrice
+     * - COMBO_ITEM (套餐商品): optionsAmount (選項加價)
      */
     public void calculateSubtotal() {
-        if ("COMBO".equals(this.itemType)) {
-            BigDecimal basePrice = (this.comboPrice != null) ? this.comboPrice : BigDecimal.ZERO;
-            this.subtotal = basePrice.add(this.optionsAmount);
-        } else {
-            this.subtotal = this.unitPrice
-                    .add(this.optionsAmount)
-                    .multiply(BigDecimal.valueOf(this.quantity));
+        switch (this.itemType) {
+            case "SINGLE":
+                this.subtotal = this.unitPrice
+                        .add(this.optionsAmount)
+                        .multiply(BigDecimal.valueOf(this.quantity));
+                break;
+            case "COMBO":
+                this.subtotal = (this.comboPrice != null) ? this.comboPrice : BigDecimal.ZERO;
+                break;
+            case "COMBO_ITEM":
+                this.subtotal = this.optionsAmount;
+                break;
+            default:
+                this.subtotal = BigDecimal.ZERO;
         }
     }
 }

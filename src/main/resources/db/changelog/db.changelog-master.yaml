@@ -25,3 +25,5 @@ databaseChangeLog:
       file: db/changelog/changes/012-create-order-items-table.sql
   - include:
       file: db/changelog/changes/013-add-combo-fields-to-order-items.sql
+  - include:
+      file: db/changelog/changes/014-refactor-order-item-combo.sql

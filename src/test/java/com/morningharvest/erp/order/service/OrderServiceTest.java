@@ -1308,7 +1308,7 @@ class OrderServiceTest {
     // ========== 套餐相關測試 ==========
 
     @Test
-    @DisplayName("加入套餐 - 成功")
+    @DisplayName("加入套餐 - 成功 (新結構：COMBO 標題行 + COMBO_ITEM 商品行)")
     @SuppressWarnings("unchecked")
     void addCombo_Success() {
         // Given
@@ -1378,25 +1378,42 @@ class OrderServiceTest {
         // Then
         assertThat(result).isInstanceOf(List.class);
         List<OrderItemDTO> items = (List<OrderItemDTO>) result;
-        assertThat(items).hasSize(2);
+        assertThat(items).hasSize(3); // 1 COMBO + 2 COMBO_ITEM
 
-        // 第一個項目應有 comboPrice
-        OrderItemDTO firstItem = items.get(0);
-        assertThat(firstItem.getItemType()).isEqualTo("COMBO");
-        assertThat(firstItem.getComboId()).isEqualTo(1L);
-        assertThat(firstItem.getComboName()).isEqualTo("經典套餐");
-        assertThat(firstItem.getGroupSequence()).isEqualTo(1);
-        assertThat(firstItem.getComboPrice()).isEqualByComparingTo(new BigDecimal("199.00"));
+        // 第一個項目應為 COMBO 標題行
+        OrderItemDTO headerItem = items.get(0);
+        assertThat(headerItem.getItemType()).isEqualTo("COMBO");
+        assertThat(headerItem.getProductId()).isNull();
+        assertThat(headerItem.getProductName()).isNull();
+        assertThat(headerItem.getComboId()).isEqualTo(1L);
+        assertThat(headerItem.getComboName()).isEqualTo("經典套餐");
+        assertThat(headerItem.getGroupSequence()).isEqualTo(1);
+        assertThat(headerItem.getComboPrice()).isEqualByComparingTo(new BigDecimal("199.00"));
+        assertThat(headerItem.getUnitPrice()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(headerItem.getSubtotal()).isEqualByComparingTo(new BigDecimal("199.00"));
 
-        // 第二個項目不應有 comboPrice
-        OrderItemDTO secondItem = items.get(1);
-        assertThat(secondItem.getItemType()).isEqualTo("COMBO");
-        assertThat(secondItem.getComboPrice()).isNull();
-        assertThat(secondItem.getGroupSequence()).isEqualTo(1);
+        // 第二個項目應為 COMBO_ITEM 商品行
+        OrderItemDTO firstProductItem = items.get(1);
+        assertThat(firstProductItem.getItemType()).isEqualTo("COMBO_ITEM");
+        assertThat(firstProductItem.getProductId()).isEqualTo(10L);
+        assertThat(firstProductItem.getProductName()).isEqualTo("漢堡");
+        assertThat(firstProductItem.getComboId()).isEqualTo(1L);
+        assertThat(firstProductItem.getComboName()).isNull(); // 互斥
+        assertThat(firstProductItem.getComboPrice()).isNull();
+        assertThat(firstProductItem.getUnitPrice()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(firstProductItem.getGroupSequence()).isEqualTo(1);
+
+        // 第三個項目應為 COMBO_ITEM 商品行
+        OrderItemDTO secondProductItem = items.get(2);
+        assertThat(secondProductItem.getItemType()).isEqualTo("COMBO_ITEM");
+        assertThat(secondProductItem.getProductId()).isEqualTo(11L);
+        assertThat(secondProductItem.getProductName()).isEqualTo("薯條");
+        assertThat(secondProductItem.getComboName()).isNull();
+        assertThat(secondProductItem.getGroupSequence()).isEqualTo(1);
 
         verify(comboRepository).findById(1L);
         verify(comboItemRepository).findByComboIdOrderBySortOrder(1L);
-        verify(orderItemRepository, times(2)).save(any(OrderItem.class));
+        verify(orderItemRepository, times(3)).save(any(OrderItem.class)); // 1 COMBO + 2 COMBO_ITEM
     }
 
     @Test
@@ -1482,15 +1499,15 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("移除套餐項目 - 刪除整組")
-    void removeComboItem_DeletesEntireGroup() {
-        // Given
-        OrderItem comboItem1 = OrderItem.builder()
+    @DisplayName("移除套餐標題行 (COMBO) - 刪除整組")
+    void removeComboHeader_DeletesEntireGroup() {
+        // Given - 套餐標題行 (COMBO)
+        OrderItem comboHeader = OrderItem.builder()
                 .id(10L)
                 .orderId(1L)
-                .productId(1L)
-                .productName("漢堡")
-                .unitPrice(new BigDecimal("89.00"))
+                .productId(null) // COMBO 標題行 productId 為 NULL
+                .productName(null)
+                .unitPrice(BigDecimal.ZERO)
                 .quantity(1)
                 .subtotal(new BigDecimal("199.00"))
                 .optionsAmount(BigDecimal.ZERO)
@@ -1501,32 +1518,98 @@ class OrderServiceTest {
                 .comboPrice(new BigDecimal("199.00"))
                 .build();
 
-        OrderItem comboItem2 = OrderItem.builder()
+        // COMBO_ITEM 商品行
+        OrderItem comboItem1 = OrderItem.builder()
                 .id(11L)
                 .orderId(1L)
-                .productId(2L)
-                .productName("薯條")
-                .unitPrice(new BigDecimal("39.00"))
+                .productId(1L)
+                .productName("漢堡")
+                .unitPrice(BigDecimal.ZERO)
                 .quantity(1)
                 .subtotal(BigDecimal.ZERO)
                 .optionsAmount(BigDecimal.ZERO)
-                .itemType("COMBO")
+                .itemType("COMBO_ITEM")
                 .comboId(1L)
-                .comboName("經典套餐")
+                .comboName(null) // 互斥
                 .groupSequence(1)
                 .build();
 
-        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(comboItem1));
+        OrderItem comboItem2 = OrderItem.builder()
+                .id(12L)
+                .orderId(1L)
+                .productId(2L)
+                .productName("薯條")
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(BigDecimal.ZERO)
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO_ITEM")
+                .comboId(1L)
+                .comboName(null)
+                .groupSequence(1)
+                .build();
+
+        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(comboHeader));
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
         when(orderItemRepository.findByOrderIdAndGroupSequence(1L, 1))
-                .thenReturn(List.of(comboItem1, comboItem2));
+                .thenReturn(List.of(comboHeader, comboItem1, comboItem2));
         when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
 
         // When
         orderService.removeItem(10L);
 
         // Then
-        verify(orderItemRepository).deleteAll(List.of(comboItem1, comboItem2));
+        verify(orderItemRepository).deleteAll(List.of(comboHeader, comboItem1, comboItem2));
+        verify(orderRepository).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("移除套餐商品行 (COMBO_ITEM) - 刪除整組")
+    void removeComboItem_DeletesEntireGroup() {
+        // Given - 套餐標題行 (COMBO)
+        OrderItem comboHeader = OrderItem.builder()
+                .id(10L)
+                .orderId(1L)
+                .productId(null)
+                .productName(null)
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(new BigDecimal("199.00"))
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO")
+                .comboId(1L)
+                .comboName("經典套餐")
+                .groupSequence(1)
+                .comboPrice(new BigDecimal("199.00"))
+                .build();
+
+        // COMBO_ITEM 商品行 (被刪除的項目)
+        OrderItem comboItem1 = OrderItem.builder()
+                .id(11L)
+                .orderId(1L)
+                .productId(1L)
+                .productName("漢堡")
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(BigDecimal.ZERO)
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO_ITEM")
+                .comboId(1L)
+                .comboName(null)
+                .groupSequence(1)
+                .build();
+
+        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem1));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderItemRepository.findByOrderIdAndGroupSequence(1L, 1))
+                .thenReturn(List.of(comboHeader, comboItem1));
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+
+        // When - 刪除 COMBO_ITEM 應該刪除整組
+        orderService.removeItem(11L);
+
+        // Then
+        verify(orderItemRepository).deleteAll(List.of(comboHeader, comboItem1));
         verify(orderRepository).save(any(Order.class));
     }
 
@@ -1573,5 +1656,184 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.addItem(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("必須指定 productId 或 comboId");
+    }
+
+    // ========== 更新項目限制測試 (新結構) ==========
+
+    @Test
+    @DisplayName("更新項目 - 更新 COMBO 標題行拋出例外")
+    void updateItem_ComboHeader_ThrowsException() {
+        // Given - COMBO 標題行不允許更新
+        OrderItem comboHeader = OrderItem.builder()
+                .id(10L)
+                .orderId(1L)
+                .productId(null)
+                .productName(null)
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(new BigDecimal("199.00"))
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO")
+                .comboId(1L)
+                .comboName("經典套餐")
+                .groupSequence(1)
+                .comboPrice(new BigDecimal("199.00"))
+                .build();
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(10L)
+                .note("更新備註")
+                .build();
+
+        when(orderItemRepository.findById(10L)).thenReturn(Optional.of(comboHeader));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.updateItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("套餐標題行不允許更新");
+
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("更新項目 - COMBO_ITEM 更新數量拋出例外")
+    void updateItem_ComboItem_UpdateQuantity_ThrowsException() {
+        // Given - COMBO_ITEM 不允許更新數量
+        OrderItem comboItem = OrderItem.builder()
+                .id(11L)
+                .orderId(1L)
+                .productId(1L)
+                .productName("漢堡")
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(BigDecimal.ZERO)
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO_ITEM")
+                .comboId(1L)
+                .comboName(null)
+                .groupSequence(1)
+                .build();
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(11L)
+                .quantity(3) // 試圖更新數量
+                .build();
+
+        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.updateItem(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("套餐商品的數量由套餐定義，不允許單獨修改");
+
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("更新項目 - COMBO_ITEM 更新選項成功")
+    void updateItem_ComboItem_UpdateOptions_Success() throws JsonProcessingException {
+        // Given - COMBO_ITEM 可以更新選項
+        OrderItem comboItem = OrderItem.builder()
+                .id(11L)
+                .orderId(1L)
+                .productId(1L)
+                .productName("漢堡")
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(BigDecimal.ZERO)
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO_ITEM")
+                .comboId(1L)
+                .comboName(null)
+                .groupSequence(1)
+                .build();
+
+        ProductOptionGroup group = ProductOptionGroup.builder()
+                .id(1L)
+                .productId(1L)
+                .name("加料")
+                .isActive(true)
+                .build();
+
+        ProductOptionValue value = ProductOptionValue.builder()
+                .id(1L)
+                .groupId(1L)
+                .name("加起司")
+                .priceAdjustment(new BigDecimal("10.00"))
+                .isActive(true)
+                .build();
+
+        List<OrderItemOptionDTO> options = List.of(
+                OrderItemOptionDTO.builder()
+                        .groupName("加料")
+                        .valueName("加起司")
+                        .priceAdjustment(new BigDecimal("10.00"))
+                        .build()
+        );
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(11L)
+                .options(options)
+                .build();
+
+        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(optionGroupRepository.findByProductIdAndIsActiveOrderBySortOrder(1L, true))
+                .thenReturn(List.of(group));
+        when(optionValueRepository.findByGroupIdInOrderByGroupIdAndSortOrder(List.of(1L)))
+                .thenReturn(List.of(value));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[{}]");
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(comboItem));
+
+        // When
+        OrderItemDTO result = orderService.updateItem(request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getOptionsAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
+        // COMBO_ITEM 的 subtotal = optionsAmount
+        assertThat(result.getSubtotal()).isEqualByComparingTo(new BigDecimal("10.00"));
+        verify(orderItemRepository).save(any(OrderItem.class));
+    }
+
+    @Test
+    @DisplayName("更新項目 - COMBO_ITEM 更新備註成功")
+    void updateItem_ComboItem_UpdateNote_Success() {
+        // Given - COMBO_ITEM 可以更新備註
+        OrderItem comboItem = OrderItem.builder()
+                .id(11L)
+                .orderId(1L)
+                .productId(1L)
+                .productName("漢堡")
+                .unitPrice(BigDecimal.ZERO)
+                .quantity(1)
+                .subtotal(BigDecimal.ZERO)
+                .optionsAmount(BigDecimal.ZERO)
+                .itemType("COMBO_ITEM")
+                .comboId(1L)
+                .comboName(null)
+                .groupSequence(1)
+                .build();
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .itemId(11L)
+                .note("不要洋蔥")
+                .build();
+
+        when(orderItemRepository.findById(11L)).thenReturn(Optional.of(comboItem));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderItemRepository.findByOrderId(1L)).thenReturn(List.of(comboItem));
+
+        // When
+        OrderItemDTO result = orderService.updateItem(request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getNote()).isEqualTo("不要洋蔥");
+        verify(orderItemRepository).save(any(OrderItem.class));
     }
 }
