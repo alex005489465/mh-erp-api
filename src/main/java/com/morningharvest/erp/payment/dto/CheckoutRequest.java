@@ -23,9 +23,13 @@ public class CheckoutRequest {
     @Builder.Default
     private String paymentMethod = "CASH";
 
-    @NotNull(message = "付款金額不可為空")
-    @DecimalMin(value = "0.01", message = "付款金額必須大於零")
-    private BigDecimal amount;
+    @NotNull(message = "實收金額不可為空")
+    @DecimalMin(value = "0.01", message = "實收金額必須大於零")
+    private BigDecimal amountReceived;
+
+    @NotNull(message = "找零金額不可為空")
+    @DecimalMin(value = "0.00", message = "找零金額不可為負數")
+    private BigDecimal changeAmount;
 
     private String note;
 }

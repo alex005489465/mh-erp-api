@@ -8,8 +8,10 @@ import com.morningharvest.erp.combo.repository.ComboItemRepository;
 import com.morningharvest.erp.combo.repository.ComboRepository;
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.dto.*;
+import com.morningharvest.erp.order.event.OrderSubmittedEvent;
 import com.morningharvest.erp.order.entity.*;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
@@ -44,6 +46,7 @@ public class OrderService {
     private final ComboRepository comboRepository;
     private final ComboItemRepository comboItemRepository;
     private final ObjectMapper objectMapper;
+    private final EventPublisher eventPublisher;
 
     /**
      * 建立訂單（含項目）
@@ -162,13 +165,35 @@ public class OrderService {
     }
 
     /**
-     * 完成訂單
+     * 送出訂單（DRAFT → PENDING_PAYMENT）
+     */
+    @Transactional
+    public OrderDTO submitOrder(Long id) {
+        log.info("送出訂單, id: {}", id);
+
+        Order order = findDraftOrder(id);
+
+        order.setStatus("PENDING_PAYMENT");
+        Order saved = orderRepository.save(order);
+        log.info("訂單已送出, id: {}", saved.getId());
+
+        // 發布訂單送出事件
+        eventPublisher.publish(
+                new OrderSubmittedEvent(saved.getId(), saved.getTotalAmount()),
+                "訂單送出"
+        );
+
+        return OrderDTO.from(saved);
+    }
+
+    /**
+     * 完成訂單（PAID → COMPLETED）
      */
     @Transactional
     public OrderDTO completeOrder(Long id) {
         log.info("完成訂單, id: {}", id);
 
-        Order order = findDraftOrder(id);
+        Order order = findPaidOrder(id);
 
         order.setStatus("COMPLETED");
         Order saved = orderRepository.save(order);
@@ -188,6 +213,20 @@ public class OrderService {
 
         if (!"DRAFT".equals(order.getStatus())) {
             throw new IllegalStateException("只有草稿狀態的訂單可以操作");
+        }
+
+        return order;
+    }
+
+    /**
+     * 取得已付款狀態的訂單
+     */
+    private Order findPaidOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + orderId));
+
+        if (!"PAID".equals(order.getStatus())) {
+            throw new IllegalStateException("只有已付款狀態的訂單可以完成");
         }
 
         return order;

@@ -1,5 +1,6 @@
 package com.morningharvest.erp.payment.service;
 
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.repository.OrderRepository;
@@ -7,6 +8,7 @@ import com.morningharvest.erp.payment.dto.CheckoutRequest;
 import com.morningharvest.erp.payment.dto.CheckoutResponse;
 import com.morningharvest.erp.payment.dto.PaymentTransactionDTO;
 import com.morningharvest.erp.payment.entity.PaymentTransaction;
+import com.morningharvest.erp.payment.event.PaymentCompletedEvent;
 import com.morningharvest.erp.payment.repository.PaymentTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,7 +26,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -38,39 +39,55 @@ class PaymentServiceTest {
     @Mock
     private OrderRepository orderRepository;
 
+    @Mock
+    private EventPublisher eventPublisher;
+
     @InjectMocks
     private PaymentService paymentService;
 
-    private Order draftOrder;
-    private Order completedOrder;
-    private PaymentTransaction testTransaction;
+    private Order pendingPaymentOrder;
+    private Order paidOrder;
+    private PaymentTransaction pendingTransaction;
+    private PaymentTransaction completedTransaction;
 
     @BeforeEach
     void setUp() {
-        draftOrder = Order.builder()
+        pendingPaymentOrder = Order.builder()
                 .id(1L)
-                .status("DRAFT")
+                .status("PENDING_PAYMENT")
                 .orderType("DINE_IN")
                 .totalAmount(new BigDecimal("150.00"))
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        completedOrder = Order.builder()
+        paidOrder = Order.builder()
                 .id(2L)
-                .status("COMPLETED")
+                .status("PAID")
                 .orderType("TAKEOUT")
                 .totalAmount(new BigDecimal("200.00"))
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        testTransaction = PaymentTransaction.builder()
+        pendingTransaction = PaymentTransaction.builder()
+                .id(1L)
+                .orderId(1L)
+                .paymentMethod("CASH")
+                .status("PENDING")
+                .amount(new BigDecimal("150.00"))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        completedTransaction = PaymentTransaction.builder()
                 .id(1L)
                 .orderId(1L)
                 .paymentMethod("CASH")
                 .status("COMPLETED")
                 .amount(new BigDecimal("150.00"))
+                .amountReceived(new BigDecimal("200.00"))
+                .changeAmount(new BigDecimal("50.00"))
                 .note("測試付款")
                 .transactionTime(LocalDateTime.now())
                 .createdAt(LocalDateTime.now())
@@ -87,20 +104,19 @@ class PaymentServiceTest {
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(1L)
                 .paymentMethod("CASH")
-                .amount(new BigDecimal("150.00"))
+                .amountReceived(new BigDecimal("200.00"))
+                .changeAmount(new BigDecimal("50.00"))
                 .note("現金付款")
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(draftOrder));
-        when(paymentTransactionRepository.existsByOrderIdAndStatus(1L, "COMPLETED")).thenReturn(false);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
         when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(invocation -> {
             PaymentTransaction t = invocation.getArgument(0);
-            t.setId(1L);
-            t.setCreatedAt(LocalDateTime.now());
-            t.setUpdatedAt(LocalDateTime.now());
+            t.setTransactionTime(LocalDateTime.now());
             return t;
         });
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When
         CheckoutResponse result = paymentService.checkout(request);
@@ -112,13 +128,13 @@ class PaymentServiceTest {
         assertThat(result.getPaymentMethod()).isEqualTo("CASH");
         assertThat(result.getStatus()).isEqualTo("COMPLETED");
         assertThat(result.getAmount()).isEqualByComparingTo(new BigDecimal("150.00"));
-        assertThat(result.getOrder()).isNotNull();
-        assertThat(result.getOrder().getStatus()).isEqualTo("COMPLETED");
+        assertThat(result.getAmountReceived()).isEqualByComparingTo(new BigDecimal("200.00"));
+        assertThat(result.getChangeAmount()).isEqualByComparingTo(new BigDecimal("50.00"));
 
-        verify(orderRepository).findById(1L);
-        verify(paymentTransactionRepository).existsByOrderIdAndStatus(1L, "COMPLETED");
+        verify(orderRepository, times(2)).findById(1L); // 一次驗證，一次取得更新後的訂單
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "PENDING");
         verify(paymentTransactionRepository).save(any(PaymentTransaction.class));
-        verify(orderRepository).save(any(Order.class));
+        verify(eventPublisher).publish(any(PaymentCompletedEvent.class), eq("付款完成"));
     }
 
     @Test
@@ -128,7 +144,8 @@ class PaymentServiceTest {
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(999L)
                 .paymentMethod("CASH")
-                .amount(new BigDecimal("100.00"))
+                .amountReceived(new BigDecimal("100.00"))
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
         when(orderRepository.findById(999L)).thenReturn(Optional.empty());
@@ -143,16 +160,17 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("結帳 - 訂單狀態非 DRAFT 拋出例外")
-    void checkout_OrderNotDraft_ThrowsException() {
+    @DisplayName("結帳 - 訂單狀態非 PENDING_PAYMENT 拋出例外")
+    void checkout_OrderNotPendingPayment_ThrowsException() {
         // Given
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(2L)
                 .paymentMethod("CASH")
-                .amount(new BigDecimal("200.00"))
+                .amountReceived(new BigDecimal("200.00"))
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
-        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
+        when(orderRepository.findById(2L)).thenReturn(Optional.of(paidOrder));
 
         // When & Then
         assertThatThrownBy(() -> paymentService.checkout(request))
@@ -164,24 +182,26 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("結帳 - 訂單已付款拋出例外")
-    void checkout_AlreadyPaid_ThrowsException() {
+    @DisplayName("結帳 - 找不到待付款條目拋出例外")
+    void checkout_NoPendingTransaction_ThrowsException() {
         // Given
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(1L)
                 .paymentMethod("CASH")
-                .amount(new BigDecimal("150.00"))
+                .amountReceived(new BigDecimal("150.00"))
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(draftOrder));
-        when(paymentTransactionRepository.existsByOrderIdAndStatus(1L, "COMPLETED")).thenReturn(true);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.empty());
 
         // When & Then
         assertThatThrownBy(() -> paymentService.checkout(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("訂單已完成付款");
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("找不到待付款的付款條目");
 
-        verify(paymentTransactionRepository).existsByOrderIdAndStatus(1L, "COMPLETED");
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "PENDING");
         verify(paymentTransactionRepository, never()).save(any());
     }
 
@@ -192,11 +212,13 @@ class PaymentServiceTest {
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(1L)
                 .paymentMethod("CREDIT_CARD")
-                .amount(new BigDecimal("150.00"))
+                .amountReceived(new BigDecimal("150.00"))
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(draftOrder));
-        when(paymentTransactionRepository.existsByOrderIdAndStatus(1L, "COMPLETED")).thenReturn(false);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
 
         // When & Then
         assertThatThrownBy(() -> paymentService.checkout(request))
@@ -207,43 +229,24 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("結帳 - 付款金額不符拋出例外（金額不足）")
+    @DisplayName("結帳 - 實收金額不足拋出例外")
     void checkout_InsufficientAmount_ThrowsException() {
         // Given
         CheckoutRequest request = CheckoutRequest.builder()
                 .orderId(1L)
                 .paymentMethod("CASH")
-                .amount(new BigDecimal("100.00")) // 不足 150 元
+                .amountReceived(new BigDecimal("100.00")) // 不足 150 元
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(draftOrder));
-        when(paymentTransactionRepository.existsByOrderIdAndStatus(1L, "COMPLETED")).thenReturn(false);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
 
         // When & Then
         assertThatThrownBy(() -> paymentService.checkout(request))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("付款金額必須等於訂單金額");
-
-        verify(paymentTransactionRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("結帳 - 付款金額不符拋出例外（金額超過）")
-    void checkout_OverpayAmount_ThrowsException() {
-        // Given
-        CheckoutRequest request = CheckoutRequest.builder()
-                .orderId(1L)
-                .paymentMethod("CASH")
-                .amount(new BigDecimal("200.00")) // 超過 150 元
-                .build();
-
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(draftOrder));
-        when(paymentTransactionRepository.existsByOrderIdAndStatus(1L, "COMPLETED")).thenReturn(false);
-
-        // When & Then
-        assertThatThrownBy(() -> paymentService.checkout(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("付款金額必須等於訂單金額");
+                .hasMessageContaining("實收金額不足");
 
         verify(paymentTransactionRepository, never()).save(any());
     }
@@ -255,7 +258,7 @@ class PaymentServiceTest {
     void getPaymentsByOrderId_Success() {
         // Given
         when(paymentTransactionRepository.findByOrderIdOrderByIdDesc(1L))
-                .thenReturn(List.of(testTransaction));
+                .thenReturn(List.of(completedTransaction));
 
         // When
         List<PaymentTransactionDTO> result = paymentService.getPaymentsByOrderId(1L);
@@ -268,6 +271,8 @@ class PaymentServiceTest {
         assertThat(result.get(0).getPaymentMethod()).isEqualTo("CASH");
         assertThat(result.get(0).getStatus()).isEqualTo("COMPLETED");
         assertThat(result.get(0).getAmount()).isEqualByComparingTo(new BigDecimal("150.00"));
+        assertThat(result.get(0).getAmountReceived()).isEqualByComparingTo(new BigDecimal("200.00"));
+        assertThat(result.get(0).getChangeAmount()).isEqualByComparingTo(new BigDecimal("50.00"));
 
         verify(paymentTransactionRepository).findByOrderIdOrderByIdDesc(1L);
     }
@@ -289,44 +294,63 @@ class PaymentServiceTest {
         verify(paymentTransactionRepository).findByOrderIdOrderByIdDesc(999L);
     }
 
+    // ========== getPaymentByOrderId 測試 ==========
+
     @Test
-    @DisplayName("查詢付款記錄 - 多筆記錄")
-    void getPaymentsByOrderId_MultipleRecords() {
+    @DisplayName("查詢付款資訊 - 成功（PENDING 狀態）")
+    void getPaymentByOrderId_Pending_Success() {
         // Given
-        PaymentTransaction transaction1 = PaymentTransaction.builder()
-                .id(1L)
-                .orderId(1L)
-                .paymentMethod("CASH")
-                .status("COMPLETED")
-                .amount(new BigDecimal("100.00"))
-                .transactionTime(LocalDateTime.now())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
-
-        PaymentTransaction transaction2 = PaymentTransaction.builder()
-                .id(2L)
-                .orderId(1L)
-                .paymentMethod("CASH")
-                .status("COMPLETED")
-                .amount(new BigDecimal("50.00"))
-                .transactionTime(LocalDateTime.now())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
-
-        when(paymentTransactionRepository.findByOrderIdOrderByIdDesc(1L))
-                .thenReturn(List.of(transaction2, transaction1)); // 依 ID 降序
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
 
         // When
-        List<PaymentTransactionDTO> result = paymentService.getPaymentsByOrderId(1L);
+        PaymentTransactionDTO result = paymentService.getPaymentByOrderId(1L);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getId()).isEqualTo(2L); // 最新的在前
-        assertThat(result.get(1).getId()).isEqualTo(1L);
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getStatus()).isEqualTo("PENDING");
+        assertThat(result.getAmount()).isEqualByComparingTo(new BigDecimal("150.00"));
 
-        verify(paymentTransactionRepository).findByOrderIdOrderByIdDesc(1L);
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "PENDING");
+    }
+
+    @Test
+    @DisplayName("查詢付款資訊 - 成功（COMPLETED 狀態）")
+    void getPaymentByOrderId_Completed_Success() {
+        // Given
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.empty());
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "COMPLETED"))
+                .thenReturn(Optional.of(completedTransaction));
+
+        // When
+        PaymentTransactionDTO result = paymentService.getPaymentByOrderId(1L);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getStatus()).isEqualTo("COMPLETED");
+
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "PENDING");
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "COMPLETED");
+    }
+
+    @Test
+    @DisplayName("查詢付款資訊 - 找不到拋出例外")
+    void getPaymentByOrderId_NotFound_ThrowsException() {
+        // Given
+        when(paymentTransactionRepository.findByOrderIdAndStatus(999L, "PENDING"))
+                .thenReturn(Optional.empty());
+        when(paymentTransactionRepository.findByOrderIdAndStatus(999L, "COMPLETED"))
+                .thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> paymentService.getPaymentByOrderId(999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("找不到付款資訊");
+
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(999L, "PENDING");
+        verify(paymentTransactionRepository).findByOrderIdAndStatus(999L, "COMPLETED");
     }
 }

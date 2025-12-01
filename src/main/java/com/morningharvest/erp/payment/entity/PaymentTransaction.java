@@ -33,6 +33,12 @@ public class PaymentTransaction {
     @Column(name = "amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
 
+    @Column(name = "amount_received", precision = 10, scale = 2)
+    private BigDecimal amountReceived;
+
+    @Column(name = "change_amount", precision = 10, scale = 2)
+    private BigDecimal changeAmount;
+
     @Column(name = "reference_no", length = 100)
     private String referenceNo;
 

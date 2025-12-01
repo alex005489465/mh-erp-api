@@ -20,6 +20,8 @@ public class PaymentTransactionDTO {
     private String paymentMethod;
     private String status;
     private BigDecimal amount;
+    private BigDecimal amountReceived;
+    private BigDecimal changeAmount;
     private String referenceNo;
     private String note;
     private LocalDateTime transactionTime;
@@ -33,6 +35,8 @@ public class PaymentTransactionDTO {
                 .paymentMethod(transaction.getPaymentMethod())
                 .status(transaction.getStatus())
                 .amount(transaction.getAmount())
+                .amountReceived(transaction.getAmountReceived())
+                .changeAmount(transaction.getChangeAmount())
                 .referenceNo(transaction.getReferenceNo())
                 .note(transaction.getNote())
                 .transactionTime(transaction.getTransactionTime())

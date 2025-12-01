@@ -34,8 +34,19 @@ public class PosCheckoutController {
         return ApiResponse.success("付款成功", response);
     }
 
+    @GetMapping("/payment")
+    @Operation(summary = "查詢付款資訊", description = "查詢訂單的付款資訊（單筆），用於顯示待付款或已付款資訊")
+    public ApiResponse<PaymentTransactionDTO> getPayment(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("orderId") Long orderId
+    ) {
+        log.debug("POS 查詢付款資訊, orderId: {}", orderId);
+        PaymentTransactionDTO payment = paymentService.getPaymentByOrderId(orderId);
+        return ApiResponse.success(payment);
+    }
+
     @GetMapping("/payments")
-    @Operation(summary = "查詢付款記錄", description = "查詢訂單的付款交易記錄")
+    @Operation(summary = "查詢付款記錄列表", description = "查詢訂單的所有付款交易記錄")
     public ApiResponse<List<PaymentTransactionDTO>> getPayments(
             @Parameter(description = "訂單 ID", required = true, example = "1")
             @RequestParam("orderId") Long orderId

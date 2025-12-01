@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
@@ -12,4 +13,6 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findByOrderIdOrderByIdDesc(Long orderId);
 
     boolean existsByOrderIdAndStatus(Long orderId, String status);
+
+    Optional<PaymentTransaction> findByOrderIdAndStatus(Long orderId, String status);
 }

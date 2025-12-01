@@ -48,8 +48,30 @@ public class PosOrderController {
         return ApiResponse.success("訂單更新成功", order);
     }
 
+    @PostMapping("/delete")
+    @Operation(summary = "刪除訂單", description = "刪除草稿 POS 訂單及其所有項目")
+    public ApiResponse<Void> deleteOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id
+    ) {
+        log.info("POS 刪除訂單, id: {}", id);
+        orderService.deleteOrder(id);
+        return ApiResponse.success("訂單已刪除");
+    }
+
+    @PostMapping("/submit")
+    @Operation(summary = "送出訂單", description = "送出 POS 訂單，狀態變更為待付款 (DRAFT → PENDING_PAYMENT)。送出後不可修改，會自動建立付款條目")
+    public ApiResponse<OrderDTO> submitOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id
+    ) {
+        log.info("POS 送出訂單, id: {}", id);
+        OrderDTO order = orderService.submitOrder(id);
+        return ApiResponse.success("訂單已送出", order);
+    }
+
     @PostMapping("/complete")
-    @Operation(summary = "完成訂單", description = "將 POS 訂單設為完成狀態（結帳）")
+    @Operation(summary = "完成訂單", description = "完成 POS 訂單，狀態變更為已完成 (PAID → COMPLETED)。僅已付款訂單可完成")
     public ApiResponse<OrderDTO> completeOrder(
             @Parameter(description = "訂單 ID", required = true, example = "1")
             @RequestParam("id") Long id

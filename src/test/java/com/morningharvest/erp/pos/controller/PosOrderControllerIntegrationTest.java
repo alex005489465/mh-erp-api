@@ -170,9 +170,11 @@ class PosOrderControllerIntegrationTest {
         draftOrder = orderRepository.save(Order.builder()
                 .status("DRAFT")
                 .orderType("DINE_IN")
-                .totalAmount(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("100.00"))
                 .build());
     }
+
+    private Order paidOrder;
 
     // ========== POST /api/pos/orders/create ==========
 
@@ -271,16 +273,61 @@ class PosOrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.totalAmount").value(75.00)); // 25 * 3
     }
 
-    // ========== POST /api/pos/orders/complete ==========
+    // ========== POST /api/pos/orders/submit ==========
 
     @Test
-    @DisplayName("POST /api/pos/orders/complete - 完成訂單成功")
-    void completeOrder_Success() throws Exception {
-        mockMvc.perform(post("/api/pos/orders/complete")
+    @DisplayName("POST /api/pos/orders/submit - 送出訂單成功")
+    void submitOrder_Success() throws Exception {
+        mockMvc.perform(post("/api/pos/orders/submit")
                         .param("id", draftOrder.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"));
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/submit - 非草稿狀態失敗")
+    void submitOrder_NotDraft_Fails() throws Exception {
+        // 先送出訂單
+        mockMvc.perform(post("/api/pos/orders/submit")
+                        .param("id", draftOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000));
+
+        // 再次送出應該失敗
+        mockMvc.perform(post("/api/pos/orders/submit")
+                        .param("id", draftOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(2003));
+    }
+
+    // ========== POST /api/pos/orders/complete ==========
+
+    @Test
+    @DisplayName("POST /api/pos/orders/complete - 從 PAID 狀態完成訂單成功")
+    void completeOrder_FromPaid_Success() throws Exception {
+        // 建立已付款訂單
+        paidOrder = orderRepository.save(Order.builder()
+                .status("PAID")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("100.00"))
+                .build());
+
+        mockMvc.perform(post("/api/pos/orders/complete")
+                        .param("id", paidOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/complete - 非 PAID 狀態失敗")
+    void completeOrder_NotPaid_Fails() throws Exception {
+        // DRAFT 狀態的訂單不能直接完成
+        mockMvc.perform(post("/api/pos/orders/complete")
+                        .param("id", draftOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(2003));
     }
 
     // ========== GET /api/pos/orders/detail ==========
@@ -311,8 +358,8 @@ class PosOrderControllerIntegrationTest {
     // ========== 完整流程測試 ==========
 
     @Test
-    @DisplayName("完整 POS 流程: 查詢菜單 → 建立訂單 → 完成訂單")
-    void fullPosFlow() throws Exception {
+    @DisplayName("完整 POS 流程: 查詢菜單 → 建立訂單 → 送出訂單")
+    void fullPosFlow_Submit() throws Exception {
         // 1. 查詢菜單
         mockMvc.perform(get("/api/pos/menu/list"))
                 .andExpect(status().isOk())
@@ -341,14 +388,14 @@ class PosOrderControllerIntegrationTest {
 
         Long orderId = objectMapper.readTree(createResponse).get("data").get("id").asLong();
 
-        // 3. 完成訂單
-        mockMvc.perform(post("/api/pos/orders/complete")
+        // 3. 送出訂單（DRAFT → PENDING_PAYMENT）
+        mockMvc.perform(post("/api/pos/orders/submit")
                         .param("id", orderId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+                .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"));
 
-        // 4. 確認無法再更新
+        // 4. 確認無法再更新（非草稿狀態）
         UpdateOrderRequest updateRequest = UpdateOrderRequest.builder()
                 .items(List.of())
                 .build();
@@ -359,5 +406,11 @@ class PosOrderControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(updateRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(2003)); // 非草稿狀態
+
+        // 5. 確認無法直接完成（必須先付款）
+        mockMvc.perform(post("/api/pos/orders/complete")
+                        .param("id", orderId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(2003)); // 非 PAID 狀態
     }
 }

@@ -20,6 +20,8 @@ public class CheckoutResponse {
     private String paymentMethod;
     private String status;
     private BigDecimal amount;
+    private BigDecimal amountReceived;
+    private BigDecimal changeAmount;
     private LocalDateTime transactionTime;
     private OrderDTO order;
 }

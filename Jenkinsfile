@@ -43,7 +43,7 @@ spec:
     }
 
     environment {
-        HARBOR_URL = '192.168.1.82:30002'
+        HARBOR_URL = 'harbor.harbor.svc.cluster.local'
         HARBOR_PROJECT = 'morning-harvest'
         IMAGE_NAME = 'erp-api'
     }

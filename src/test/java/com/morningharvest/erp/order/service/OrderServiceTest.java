@@ -8,8 +8,10 @@ import com.morningharvest.erp.combo.repository.ComboItemRepository;
 import com.morningharvest.erp.combo.repository.ComboRepository;
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
+import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.dto.*;
+import com.morningharvest.erp.order.event.OrderSubmittedEvent;
 import com.morningharvest.erp.order.entity.*;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
@@ -69,11 +71,16 @@ class OrderServiceTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private EventPublisher eventPublisher;
+
     @InjectMocks
     private OrderService orderService;
 
     private Order testOrder;
     private Order completedOrder;
+    private Order paidOrder;
+    private Order pendingPaymentOrder;
     private Product testProduct;
     private Product inactiveProduct;
 
@@ -97,7 +104,7 @@ class OrderServiceTest {
                 .id(1L)
                 .status("DRAFT")
                 .orderType("DINE_IN")
-                .totalAmount(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("150.00"))
                 .note("測試訂單")
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -108,6 +115,24 @@ class OrderServiceTest {
                 .status("COMPLETED")
                 .orderType("TAKEOUT")
                 .totalAmount(new BigDecimal("118.00"))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        paidOrder = Order.builder()
+                .id(3L)
+                .status("PAID")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("200.00"))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        pendingPaymentOrder = Order.builder()
+                .id(4L)
+                .status("PENDING_PAYMENT")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("100.00"))
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -425,22 +450,72 @@ class OrderServiceTest {
                 .hasMessageContaining("只有草稿狀態的訂單可以操作");
     }
 
-    // ========== completeOrder 測試 ==========
+    // ========== submitOrder 測試 ==========
 
     @Test
-    @DisplayName("完成訂單 - 成功")
-    void completeOrder_Success() {
+    @DisplayName("送出訂單 - 成功")
+    void submitOrder_Success() {
         // Given
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When
-        OrderDTO result = orderService.completeOrder(1L);
+        OrderDTO result = orderService.submitOrder(1L);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo("PENDING_PAYMENT");
+        verify(orderRepository).findById(1L);
+        verify(orderRepository).save(any(Order.class));
+        verify(eventPublisher).publish(any(OrderSubmittedEvent.class), eq("訂單送出"));
+    }
+
+    @Test
+    @DisplayName("送出訂單 - 訂單不存在拋出例外")
+    void submitOrder_NotFound_ThrowsException() {
+        // Given
+        when(orderRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.submitOrder(999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("訂單不存在");
+
+        verify(orderRepository).findById(999L);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("送出訂單 - 非草稿狀態拋出例外")
+    void submitOrder_NotDraft_ThrowsException() {
+        // Given
+        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.submitOrder(2L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("只有草稿狀態的訂單可以操作");
+
+        verify(orderRepository).findById(2L);
+        verify(orderRepository, never()).save(any());
+    }
+
+    // ========== completeOrder 測試 ==========
+
+    @Test
+    @DisplayName("完成訂單 - 成功（從 PAID 狀態）")
+    void completeOrder_Success() {
+        // Given
+        when(orderRepository.findById(3L)).thenReturn(Optional.of(paidOrder));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // When
+        OrderDTO result = orderService.completeOrder(3L);
 
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getStatus()).isEqualTo("COMPLETED");
-        verify(orderRepository).findById(1L);
+        verify(orderRepository).findById(3L);
         verify(orderRepository).save(any(Order.class));
     }
 
@@ -460,17 +535,32 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("完成訂單 - 非草稿狀態拋出例外")
-    void completeOrder_NotDraft_ThrowsException() {
+    @DisplayName("完成訂單 - 非 PAID 狀態拋出例外")
+    void completeOrder_NotPaid_ThrowsException() {
         // Given
-        when(orderRepository.findById(2L)).thenReturn(Optional.of(completedOrder));
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder)); // DRAFT 狀態
 
         // When & Then
-        assertThatThrownBy(() -> orderService.completeOrder(2L))
+        assertThatThrownBy(() -> orderService.completeOrder(1L))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("只有草稿狀態的訂單可以操作");
+                .hasMessageContaining("只有已付款狀態的訂單可以完成");
 
-        verify(orderRepository).findById(2L);
+        verify(orderRepository).findById(1L);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("完成訂單 - PENDING_PAYMENT 狀態拋出例外")
+    void completeOrder_PendingPayment_ThrowsException() {
+        // Given
+        when(orderRepository.findById(4L)).thenReturn(Optional.of(pendingPaymentOrder));
+
+        // When & Then
+        assertThatThrownBy(() -> orderService.completeOrder(4L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("只有已付款狀態的訂單可以完成");
+
+        verify(orderRepository).findById(4L);
         verify(orderRepository, never()).save(any());
     }
 

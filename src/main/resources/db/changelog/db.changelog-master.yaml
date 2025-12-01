@@ -31,3 +31,5 @@ databaseChangeLog:
       file: db/changelog/changes/015-create-payment-transactions-table.sql
   - include:
       file: db/changelog/changes/016-remove-constraints-add-comments.sql
+  - include:
+      file: db/changelog/changes/017-add-payment-fields.sql
