@@ -68,6 +68,7 @@ class OrderControllerIntegrationTest {
 
     private Order testOrder;
     private Order completedOrder;
+    private Order paidOrder;
     private Product testProduct;
     private Product inactiveProduct;
     private ProductCategory testCategory;
@@ -126,6 +127,14 @@ class OrderControllerIntegrationTest {
                 .totalAmount(new BigDecimal("118.00"))
                 .build();
         completedOrder = orderRepository.save(completedOrder);
+
+        // 建立已付款訂單 (供 completeOrder 測試使用)
+        paidOrder = Order.builder()
+                .status("PAID")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("59.00"))
+                .build();
+        paidOrder = orderRepository.save(paidOrder);
 
         // 建立產品選項群組
         testOptionGroup = ProductOptionGroup.builder()
@@ -433,7 +442,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content").isArray())
-                .andExpect(jsonPath("$.data.totalElements").value(2)); // testOrder + completedOrder
+                .andExpect(jsonPath("$.data.totalElements").value(3)); // testOrder + completedOrder + paidOrder
     }
 
     @Test
@@ -464,14 +473,14 @@ class OrderControllerIntegrationTest {
     @DisplayName("POST /api/orders/complete - 完成訂單成功")
     void completeOrder_Success() throws Exception {
         mockMvc.perform(post("/api/orders/complete")
-                        .param("id", testOrder.getId().toString()))
+                        .param("id", paidOrder.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
 
         // 驗證資料庫狀態
-        Order updated = orderRepository.findById(testOrder.getId()).orElseThrow();
+        Order updated = orderRepository.findById(paidOrder.getId()).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo("COMPLETED");
     }
 
@@ -487,87 +496,18 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/orders/complete - 非草稿狀態 (code=2003)")
-    void completeOrder_NotDraft() throws Exception {
+    @DisplayName("POST /api/orders/complete - 非已付款狀態 (code=2003)")
+    void completeOrder_NotPaid() throws Exception {
         mockMvc.perform(post("/api/orders/complete")
                         .param("id", completedOrder.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(2003))
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("只有草稿狀態的訂單可以操作"));
+                .andExpect(jsonPath("$.message").value("只有已付款狀態的訂單可以完成"));
     }
 
     // ========== 完整流程測試 ==========
-
-    @Test
-    @DisplayName("完整流程: 建立訂單 → 查詢 → 更新 → 完成")
-    void fullFlow_CreateUpdateComplete() throws Exception {
-        // 1. 建立訂單（含項目）
-        CreateOrderRequest createRequest = CreateOrderRequest.builder()
-                .orderType("DINE_IN")
-                .items(List.of(
-                        OrderItemRequest.builder()
-                                .type("SINGLE")
-                                .productId(testProduct.getId())
-                                .quantity(1)
-                                .build()
-                ))
-                .build();
-
-        String createResponse = mockMvc.perform(post("/api/orders/create")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(createRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.data.totalAmount").value(59.00))
-                .andReturn().getResponse().getContentAsString();
-
-        Long orderId = objectMapper.readTree(createResponse).get("data").get("id").asLong();
-
-        // 2. 查詢訂單
-        mockMvc.perform(get("/api/orders/detail")
-                        .param("id", orderId.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.data.items").isArray())
-                .andExpect(jsonPath("$.data.items[0].productName").value("招牌漢堡"));
-
-        // 3. 更新訂單（加一份、改外帶）
-        UpdateOrderRequest updateRequest = UpdateOrderRequest.builder()
-                .orderType("TAKEOUT")
-                .items(List.of(
-                        OrderItemRequest.builder()
-                                .type("SINGLE")
-                                .productId(testProduct.getId())
-                                .quantity(2)
-                                .build()
-                ))
-                .build();
-
-        mockMvc.perform(post("/api/orders/update")
-                        .param("id", orderId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(updateRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.data.orderType").value("TAKEOUT"))
-                .andExpect(jsonPath("$.data.totalAmount").value(118.00)); // 59 * 2
-
-        // 4. 完成訂單
-        mockMvc.perform(post("/api/orders/complete")
-                        .param("id", orderId.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
-
-        // 5. 確認無法再更新
-        mockMvc.perform(post("/api/orders/update")
-                        .param("id", orderId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(updateRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(2003));
-    }
+    // fullFlow_CreateUpdateComplete 已移至 OrderFullFlowIntegrationTest（需要異步事件處理）
 
     @Test
     @DisplayName("完整流程: 多選項正確計算")
