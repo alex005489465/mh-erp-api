@@ -87,6 +87,22 @@ public class OrderController {
     }
 
     /**
+     * 取消訂單
+     */
+    @PostMapping("/cancel")
+    @Operation(summary = "取消訂單", description = "取消訂單。已付款訂單會自動建立退款記錄。已完成訂單無法取消")
+    public ApiResponse<CancelOrderResult> cancelOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id,
+            @RequestBody(required = false) CancelOrderRequest request
+    ) {
+        log.info("取消訂單, id: {}", id);
+        String reason = request != null ? request.getReason() : null;
+        CancelOrderResult result = orderService.cancelOrder(id, reason);
+        return ApiResponse.success("訂單取消成功", result);
+    }
+
+    /**
      * 取得訂單詳情
      */
     @GetMapping("/detail")

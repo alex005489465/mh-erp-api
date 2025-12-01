@@ -33,3 +33,7 @@ databaseChangeLog:
       file: db/changelog/changes/016-remove-constraints-add-comments.sql
   - include:
       file: db/changelog/changes/017-add-payment-fields.sql
+  - include:
+      file: db/changelog/changes/018-add-order-cancel-fields.sql
+  - include:
+      file: db/changelog/changes/019-add-payment-cancel-fields.sql

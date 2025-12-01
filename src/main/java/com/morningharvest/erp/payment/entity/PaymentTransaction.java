@@ -30,6 +30,14 @@ public class PaymentTransaction {
     @Builder.Default
     private String status = "COMPLETED";
 
+    @Column(name = "transaction_type", length = 20)
+    @Builder.Default
+    private String transactionType = "PAYMENT";
+
+    @Column(name = "is_cancelled")
+    @Builder.Default
+    private Boolean isCancelled = false;
+
     @Column(name = "amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
 

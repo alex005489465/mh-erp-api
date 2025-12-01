@@ -11,8 +11,11 @@ import com.morningharvest.erp.common.dto.PageableRequest;
 import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
 import com.morningharvest.erp.order.dto.*;
+import com.morningharvest.erp.order.event.OrderCancelledEvent;
 import com.morningharvest.erp.order.event.OrderSubmittedEvent;
 import com.morningharvest.erp.order.entity.*;
+import com.morningharvest.erp.payment.entity.PaymentTransaction;
+import com.morningharvest.erp.payment.repository.PaymentTransactionRepository;
 import com.morningharvest.erp.order.repository.OrderItemRepository;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.product.entity.Product;
@@ -47,6 +50,7 @@ public class OrderService {
     private final ComboItemRepository comboItemRepository;
     private final ObjectMapper objectMapper;
     private final EventPublisher eventPublisher;
+    private final PaymentTransactionRepository paymentTransactionRepository;
 
     /**
      * 建立訂單（含項目）
@@ -200,6 +204,88 @@ public class OrderService {
         log.info("訂單完成, id: {}", saved.getId());
 
         return OrderDTO.from(saved);
+    }
+
+    /**
+     * 取消訂單
+     */
+    @Transactional
+    public CancelOrderResult cancelOrder(Long orderId, String reason) {
+        log.info("取消訂單, orderId: {}, reason: {}", orderId, reason);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("訂單不存在: " + orderId));
+
+        // 驗證可取消狀態
+        if ("COMPLETED".equals(order.getStatus())) {
+            throw new IllegalStateException("已完成訂單無法取消");
+        }
+        if (Boolean.TRUE.equals(order.getIsCancelled())) {
+            throw new IllegalStateException("訂單已取消");
+        }
+
+        String originalStatus = order.getStatus();
+        Long refundTransactionId = null;
+        BigDecimal refundAmount = null;
+
+        // 處理已付款訂單的退款
+        if ("PAID".equals(originalStatus)) {
+            PaymentTransaction payment = paymentTransactionRepository
+                    .findByOrderIdAndStatus(orderId, "COMPLETED")
+                    .orElseThrow(() -> new IllegalStateException("找不到已完成的付款記錄"));
+
+            // 標記原付款為已取消
+            payment.setIsCancelled(true);
+            paymentTransactionRepository.save(payment);
+
+            // 建立退款記錄
+            PaymentTransaction refund = PaymentTransaction.builder()
+                    .orderId(orderId)
+                    .transactionType("REFUND")
+                    .paymentMethod(payment.getPaymentMethod())
+                    .status("COMPLETED")
+                    .amount(payment.getAmount().negate())
+                    .transactionTime(java.time.LocalDateTime.now())
+                    .note("取消訂單退款")
+                    .build();
+            refund = paymentTransactionRepository.save(refund);
+
+            refundTransactionId = refund.getId();
+            refundAmount = payment.getAmount();
+            log.info("已建立退款記錄, refundTransactionId: {}, refundAmount: {}", refundTransactionId, refundAmount);
+        }
+        // 處理待付款訂單
+        else if ("PENDING_PAYMENT".equals(originalStatus)) {
+            paymentTransactionRepository.findByOrderIdAndStatus(orderId, "PENDING")
+                    .ifPresent(p -> {
+                        p.setIsCancelled(true);
+                        p.setStatus("CANCELLED");
+                        paymentTransactionRepository.save(p);
+                        log.info("已取消待付款記錄, paymentId: {}", p.getId());
+                    });
+        }
+
+        // 標記訂單取消
+        order.setStatus("CANCELLED");
+        order.setIsCancelled(true);
+        order.setCancelledAt(java.time.LocalDateTime.now());
+        order.setCancelReason(reason);
+        orderRepository.save(order);
+
+        // 發布取消事件
+        eventPublisher.publish(
+                new OrderCancelledEvent(orderId, refundAmount),
+                "訂單取消"
+        );
+
+        log.info("訂單取消成功, orderId: {}", orderId);
+
+        return CancelOrderResult.builder()
+                .orderId(orderId)
+                .status("CANCELLED")
+                .refundAmount(refundAmount)
+                .refundTransactionId(refundTransactionId)
+                .build();
     }
 
     // ========== 內部方法 ==========

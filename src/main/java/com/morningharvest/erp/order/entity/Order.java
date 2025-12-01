@@ -34,6 +34,16 @@ public class Order {
     @Column(name = "note", length = 500)
     private String note;
 
+    @Column(name = "is_cancelled")
+    @Builder.Default
+    private Boolean isCancelled = false;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    @Column(name = "cancel_reason", length = 500)
+    private String cancelReason;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
