@@ -81,6 +81,19 @@ public class PosOrderController {
         return ApiResponse.success("訂單完成", order);
     }
 
+    @PostMapping("/cancel")
+    @Operation(summary = "取消訂單", description = "取消 POS 訂單。已付款訂單會自動建立退款記錄。已完成訂單無法取消")
+    public ApiResponse<CancelOrderResult> cancelOrder(
+            @Parameter(description = "訂單 ID", required = true, example = "1")
+            @RequestParam("id") Long id,
+            @RequestBody(required = false) CancelOrderRequest request
+    ) {
+        log.info("POS 取消訂單, id: {}", id);
+        String reason = request != null ? request.getReason() : null;
+        CancelOrderResult result = orderService.cancelOrder(id, reason);
+        return ApiResponse.success("訂單取消成功", result);
+    }
+
     @GetMapping("/detail")
     @Operation(summary = "查詢訂單詳情", description = "查詢 POS 訂單詳細資訊，包含所有項目")
     public ApiResponse<OrderDetailDTO> getOrderDetail(

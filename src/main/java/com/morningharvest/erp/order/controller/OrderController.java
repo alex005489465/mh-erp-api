@@ -3,12 +3,12 @@ package com.morningharvest.erp.order.controller;
 import com.morningharvest.erp.common.dto.ApiResponse;
 import com.morningharvest.erp.common.dto.PageResponse;
 import com.morningharvest.erp.common.dto.PageableRequest;
-import com.morningharvest.erp.order.dto.*;
+import com.morningharvest.erp.order.dto.OrderDTO;
+import com.morningharvest.erp.order.dto.OrderDetailDTO;
 import com.morningharvest.erp.order.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
@@ -16,91 +16,16 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * 訂單管理 Controller
- * 提供訂單 CRUD 操作（整批更新模式）
+ * 提供 ERP 訂單查詢功能
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
-@Tag(name = "訂單管理", description = "訂單建立、更新、刪除、完成等操作")
+@Tag(name = "訂單管理", description = "ERP 訂單查詢")
 public class OrderController {
 
     private final OrderService orderService;
-
-    /**
-     * 建立訂單（含項目）
-     */
-    @PostMapping("/create")
-    @Operation(summary = "建立訂單", description = "建立訂單並加入項目。可同時傳入單點商品和套餐")
-    public ApiResponse<OrderDetailDTO> createOrder(
-            @Valid @RequestBody(required = false) CreateOrderRequest request
-    ) {
-        log.info("建立訂單");
-        if (request == null) {
-            request = new CreateOrderRequest();
-        }
-        OrderDetailDTO order = orderService.createOrder(request);
-        return ApiResponse.success("訂單建立成功", order);
-    }
-
-    /**
-     * 更新訂單（整批取代項目）
-     */
-    @PostMapping("/update")
-    @Operation(summary = "更新訂單", description = "整批更新訂單。會刪除所有舊項目，建立新項目")
-    public ApiResponse<OrderDetailDTO> updateOrder(
-            @Parameter(description = "訂單 ID", required = true, example = "1")
-            @RequestParam("id") Long id,
-            @Valid @RequestBody UpdateOrderRequest request
-    ) {
-        log.info("更新訂單, id: {}", id);
-        OrderDetailDTO order = orderService.updateOrder(id, request);
-        return ApiResponse.success("訂單更新成功", order);
-    }
-
-    /**
-     * 刪除訂單
-     */
-    @PostMapping("/delete")
-    @Operation(summary = "刪除訂單", description = "刪除草稿訂單及其所有項目")
-    public ApiResponse<Void> deleteOrder(
-            @Parameter(description = "訂單 ID", required = true, example = "1")
-            @RequestParam("id") Long id
-    ) {
-        log.info("刪除訂單, id: {}", id);
-        orderService.deleteOrder(id);
-        return ApiResponse.success("訂單已刪除");
-    }
-
-    /**
-     * 完成訂單
-     */
-    @PostMapping("/complete")
-    @Operation(summary = "完成訂單", description = "將草稿訂單設為完成狀態，完成後不可修改")
-    public ApiResponse<OrderDTO> completeOrder(
-            @Parameter(description = "訂單 ID", required = true, example = "1")
-            @RequestParam("id") Long id
-    ) {
-        log.info("完成訂單, id: {}", id);
-        OrderDTO order = orderService.completeOrder(id);
-        return ApiResponse.success("訂單完成", order);
-    }
-
-    /**
-     * 取消訂單
-     */
-    @PostMapping("/cancel")
-    @Operation(summary = "取消訂單", description = "取消訂單。已付款訂單會自動建立退款記錄。已完成訂單無法取消")
-    public ApiResponse<CancelOrderResult> cancelOrder(
-            @Parameter(description = "訂單 ID", required = true, example = "1")
-            @RequestParam("id") Long id,
-            @RequestBody(required = false) CancelOrderRequest request
-    ) {
-        log.info("取消訂單, id: {}", id);
-        String reason = request != null ? request.getReason() : null;
-        CancelOrderResult result = orderService.cancelOrder(id, reason);
-        return ApiResponse.success("訂單取消成功", result);
-    }
 
     /**
      * 取得訂單詳情

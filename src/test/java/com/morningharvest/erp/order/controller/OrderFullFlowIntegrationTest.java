@@ -32,12 +32,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 訂單完整流程整合測試
  *
- * 不使用 @Transactional，以確保 @Async 事件監聽器能正常執行
+ * 不使用 @Transactional，以確保 @Async 事件監聯器能正常執行
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DisplayName("訂單完整流程整合測試")
+@DisplayName("訂單完整流程整合測試 (POS)")
 class OrderFullFlowIntegrationTest {
 
     @Autowired
@@ -103,7 +103,7 @@ class OrderFullFlowIntegrationTest {
     @Test
     @DisplayName("完整流程: 建立訂單 → 查詢 → 更新 → 送出 → 付款 → 完成")
     void fullFlow_CreateUpdateComplete() throws Exception {
-        // 1. 建立訂單（含項目）
+        // 1. 建立訂單（含項目）- 使用 POS 端點
         CreateOrderRequest createRequest = CreateOrderRequest.builder()
                 .orderType("DINE_IN")
                 .items(List.of(
@@ -115,7 +115,7 @@ class OrderFullFlowIntegrationTest {
                 ))
                 .build();
 
-        String createResponse = mockMvc.perform(post("/api/orders/create")
+        String createResponse = mockMvc.perform(post("/api/pos/orders/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createRequest)))
                 .andExpect(status().isOk())
@@ -125,7 +125,7 @@ class OrderFullFlowIntegrationTest {
 
         Long orderId = objectMapper.readTree(createResponse).get("data").get("id").asLong();
 
-        // 2. 查詢訂單
+        // 2. 查詢訂單 - 使用 ERP 端點
         mockMvc.perform(get("/api/orders/detail")
                         .param("id", orderId.toString()))
                 .andExpect(status().isOk())
@@ -133,7 +133,7 @@ class OrderFullFlowIntegrationTest {
                 .andExpect(jsonPath("$.data.items").isArray())
                 .andExpect(jsonPath("$.data.items[0].productName").value("招牌漢堡"));
 
-        // 3. 更新訂單（加一份、改外帶）
+        // 3. 更新訂單（加一份、改外帶）- 使用 POS 端點
         UpdateOrderRequest updateRequest = UpdateOrderRequest.builder()
                 .orderType("TAKEOUT")
                 .items(List.of(
@@ -145,7 +145,7 @@ class OrderFullFlowIntegrationTest {
                 ))
                 .build();
 
-        mockMvc.perform(post("/api/orders/update")
+        mockMvc.perform(post("/api/pos/orders/update")
                         .param("id", orderId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(updateRequest)))
@@ -154,17 +154,17 @@ class OrderFullFlowIntegrationTest {
                 .andExpect(jsonPath("$.data.orderType").value("TAKEOUT"))
                 .andExpect(jsonPath("$.data.totalAmount").value(118.00)); // 59 * 2
 
-        // 4. 送出訂單 (DRAFT → PENDING_PAYMENT)
+        // 4. 送出訂單 (DRAFT → PENDING_PAYMENT) - 使用 POS 端點
         mockMvc.perform(post("/api/pos/orders/submit")
                         .param("id", orderId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"));
 
-        // 等待異步事件處理完成（付款條目由 @Async 事件監聽器建立）
+        // 等待異步事件處理完成（付款條目由 @Async 事件監聯器建立）
         Thread.sleep(500);
 
-        // 5. 付款 (PENDING_PAYMENT → PAID)
+        // 5. 付款 (PENDING_PAYMENT → PAID) - 使用 POS 端點
         CheckoutRequest checkoutRequest = CheckoutRequest.builder()
                 .orderId(orderId)
                 .paymentMethod("CASH")
@@ -178,18 +178,18 @@ class OrderFullFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000));
 
-        // 等待異步事件處理完成（訂單狀態由 @Async 事件監聽器更新為 PAID）
+        // 等待異步事件處理完成（訂單狀態由 @Async 事件監聯器更新為 PAID）
         Thread.sleep(500);
 
-        // 6. 完成訂單 (PAID → COMPLETED)
-        mockMvc.perform(post("/api/orders/complete")
+        // 6. 完成訂單 (PAID → COMPLETED) - 使用 POS 端點
+        mockMvc.perform(post("/api/pos/orders/complete")
                         .param("id", orderId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
 
-        // 7. 確認無法再更新
-        mockMvc.perform(post("/api/orders/update")
+        // 7. 確認無法再更新 - 使用 POS 端點
+        mockMvc.perform(post("/api/pos/orders/update")
                         .param("id", orderId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(updateRequest)))

@@ -5,6 +5,7 @@ import com.morningharvest.erp.combo.entity.Combo;
 import com.morningharvest.erp.combo.entity.ComboItem;
 import com.morningharvest.erp.combo.repository.ComboItemRepository;
 import com.morningharvest.erp.combo.repository.ComboRepository;
+import com.morningharvest.erp.order.dto.CancelOrderRequest;
 import com.morningharvest.erp.order.dto.CreateOrderRequest;
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.dto.OrderItemRequest;
@@ -16,6 +17,8 @@ import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
 import com.morningharvest.erp.product.entity.ProductOptionGroup;
 import com.morningharvest.erp.product.entity.ProductOptionValue;
+import com.morningharvest.erp.payment.entity.PaymentTransaction;
+import com.morningharvest.erp.payment.repository.PaymentTransactionRepository;
 import com.morningharvest.erp.product.repository.ProductCategoryRepository;
 import com.morningharvest.erp.product.repository.ProductOptionGroupRepository;
 import com.morningharvest.erp.product.repository.ProductOptionValueRepository;
@@ -32,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -76,6 +80,9 @@ class PosOrderControllerIntegrationTest {
     @Autowired
     private ComboItemRepository comboItemRepository;
 
+    @Autowired
+    private PaymentTransactionRepository paymentTransactionRepository;
+
     private ProductCategory category;
     private Product product1;
     private Product product2;
@@ -87,6 +94,7 @@ class PosOrderControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         // 清理資料
+        paymentTransactionRepository.deleteAll();
         orderItemRepository.deleteAll();
         orderRepository.deleteAll();
         comboItemRepository.deleteAll();
@@ -412,5 +420,110 @@ class PosOrderControllerIntegrationTest {
                         .param("id", orderId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(2003)); // 非 PAID 狀態
+    }
+
+    // ========== POST /api/pos/orders/cancel ==========
+
+    @Test
+    @DisplayName("POST /api/pos/orders/cancel - 取消草稿訂單成功")
+    void cancelOrder_Draft_Success() throws Exception {
+        CancelOrderRequest request = CancelOrderRequest.builder()
+                .reason("客戶改變心意")
+                .build();
+
+        mockMvc.perform(post("/api/pos/orders/cancel")
+                        .param("id", draftOrder.getId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(draftOrder.getId()))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.data.refundAmount").isEmpty())
+                .andExpect(jsonPath("$.data.refundTransactionId").isEmpty());
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/cancel - 取消已付款訂單成功並退款")
+    void cancelOrder_Paid_Success_WithRefund() throws Exception {
+        // 建立已付款訂單
+        Order paidOrderForCancel = orderRepository.save(Order.builder()
+                .status("PAID")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("59.00"))
+                .build());
+
+        // 建立付款記錄
+        paymentTransactionRepository.save(PaymentTransaction.builder()
+                .orderId(paidOrderForCancel.getId())
+                .transactionType("PAYMENT")
+                .paymentMethod("CASH")
+                .status("COMPLETED")
+                .amount(new BigDecimal("59.00"))
+                .amountReceived(new BigDecimal("100.00"))
+                .changeAmount(new BigDecimal("41.00"))
+                .transactionTime(LocalDateTime.now())
+                .build());
+
+        CancelOrderRequest request = CancelOrderRequest.builder()
+                .reason("餐點有問題")
+                .build();
+
+        mockMvc.perform(post("/api/pos/orders/cancel")
+                        .param("id", paidOrderForCancel.getId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(paidOrderForCancel.getId()))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.data.refundAmount").value(59.00))
+                .andExpect(jsonPath("$.data.refundTransactionId").isNumber());
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/cancel - 取消已完成訂單失敗")
+    void cancelOrder_Completed_Fail() throws Exception {
+        // 建立已完成訂單
+        Order completedOrder = orderRepository.save(Order.builder()
+                .status("COMPLETED")
+                .orderType("DINE_IN")
+                .totalAmount(new BigDecimal("100.00"))
+                .build());
+
+        mockMvc.perform(post("/api/pos/orders/cancel")
+                        .param("id", completedOrder.getId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(2003))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("已完成訂單無法取消"));
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/cancel - 訂單不存在")
+    void cancelOrder_NotFound() throws Exception {
+        mockMvc.perform(post("/api/pos/orders/cancel")
+                        .param("id", "99999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(3001))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("訂單不存在: 99999"));
+    }
+
+    @Test
+    @DisplayName("POST /api/pos/orders/cancel - 不帶 reason 也能取消")
+    void cancelOrder_WithoutReason_Success() throws Exception {
+        mockMvc.perform(post("/api/pos/orders/cancel")
+                        .param("id", draftOrder.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
     }
 }
