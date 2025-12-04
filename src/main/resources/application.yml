@@ -69,3 +69,10 @@ springdoc:
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
+
+# 發票服務設定
+invoice:
+  service:
+    mock: true  # 開發環境使用 mock，正式環境改為 false
+    url: ${INVOICE_SERVICE_URL:http://invoice-service:8080}
+    timeout: 30000

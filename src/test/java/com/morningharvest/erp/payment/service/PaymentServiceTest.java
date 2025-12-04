@@ -2,10 +2,14 @@ package com.morningharvest.erp.payment.service;
 
 import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
+import com.morningharvest.erp.invoice.dto.InvoiceResult;
+import com.morningharvest.erp.invoice.dto.IssueInvoiceRequest;
+import com.morningharvest.erp.invoice.service.InvoiceService;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.payment.dto.CheckoutRequest;
 import com.morningharvest.erp.payment.dto.CheckoutResponse;
+import com.morningharvest.erp.payment.dto.InvoiceInfo;
 import com.morningharvest.erp.payment.dto.PaymentTransactionDTO;
 import com.morningharvest.erp.payment.entity.PaymentTransaction;
 import com.morningharvest.erp.payment.event.PaymentCompletedEvent;
@@ -41,6 +45,9 @@ class PaymentServiceTest {
 
     @Mock
     private EventPublisher eventPublisher;
+
+    @Mock
+    private InvoiceService invoiceService;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -117,6 +124,13 @@ class PaymentServiceTest {
             t.setTransactionTime(LocalDateTime.now());
             return t;
         });
+        when(invoiceService.issueInvoice(any(IssueInvoiceRequest.class)))
+                .thenReturn(InvoiceResult.builder()
+                        .invoiceId(1L)
+                        .invoiceNumber("AA-00000001")
+                        .status("ISSUED")
+                        .message("Mock 開立成功")
+                        .build());
 
         // When
         CheckoutResponse result = paymentService.checkout(request);
@@ -130,11 +144,15 @@ class PaymentServiceTest {
         assertThat(result.getAmount()).isEqualByComparingTo(new BigDecimal("150.00"));
         assertThat(result.getAmountReceived()).isEqualByComparingTo(new BigDecimal("200.00"));
         assertThat(result.getChangeAmount()).isEqualByComparingTo(new BigDecimal("50.00"));
+        assertThat(result.getInvoice()).isNotNull();
+        assertThat(result.getInvoice().getInvoiceNumber()).isEqualTo("AA-00000001");
+        assertThat(result.getInvoice().getStatus()).isEqualTo("ISSUED");
 
         verify(orderRepository, times(2)).findById(1L); // 一次驗證，一次取得更新後的訂單
         verify(paymentTransactionRepository).findByOrderIdAndStatus(1L, "PENDING");
         verify(paymentTransactionRepository).save(any(PaymentTransaction.class));
         verify(eventPublisher).publish(any(PaymentCompletedEvent.class), eq("付款完成"));
+        verify(invoiceService).issueInvoice(any(IssueInvoiceRequest.class));
     }
 
     @Test
@@ -352,5 +370,93 @@ class PaymentServiceTest {
 
         verify(paymentTransactionRepository).findByOrderIdAndStatus(999L, "PENDING");
         verify(paymentTransactionRepository).findByOrderIdAndStatus(999L, "COMPLETED");
+    }
+
+    // ========== 發票整合測試 ==========
+
+    @Test
+    @DisplayName("結帳 - 發票開立失敗仍返回成功結帳結果")
+    void checkout_InvoiceIssueFailed_ReturnsFailedInvoiceResult() {
+        // Given
+        CheckoutRequest request = CheckoutRequest.builder()
+                .orderId(1L)
+                .paymentMethod("CASH")
+                .amountReceived(new BigDecimal("200.00"))
+                .changeAmount(new BigDecimal("50.00"))
+                .note("現金付款")
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(invocation -> {
+            PaymentTransaction t = invocation.getArgument(0);
+            t.setTransactionTime(LocalDateTime.now());
+            return t;
+        });
+        when(invoiceService.issueInvoice(any(IssueInvoiceRequest.class)))
+                .thenThrow(new RuntimeException("發票服務暫時無法使用"));
+
+        // When
+        CheckoutResponse result = paymentService.checkout(request);
+
+        // Then - 結帳仍然成功，但發票狀態為 FAILED
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo("COMPLETED");
+        assertThat(result.getInvoice()).isNotNull();
+        assertThat(result.getInvoice().getStatus()).isEqualTo("FAILED");
+        assertThat(result.getInvoice().getMessage()).contains("發票開立失敗");
+
+        verify(invoiceService).issueInvoice(any(IssueInvoiceRequest.class));
+    }
+
+    @Test
+    @DisplayName("結帳 - 含發票資訊開立 B2B 發票")
+    void checkout_WithInvoiceInfo_IssuesB2BInvoice() {
+        // Given
+        InvoiceInfo invoiceInfo = InvoiceInfo.builder()
+                .invoiceType("B2B")
+                .issueType("ELECTRONIC")
+                .buyerIdentifier("12345678")
+                .buyerName("測試公司")
+                .build();
+
+        CheckoutRequest request = CheckoutRequest.builder()
+                .orderId(1L)
+                .paymentMethod("CASH")
+                .amountReceived(new BigDecimal("200.00"))
+                .changeAmount(new BigDecimal("50.00"))
+                .invoice(invoiceInfo)
+                .build();
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingPaymentOrder));
+        when(paymentTransactionRepository.findByOrderIdAndStatus(1L, "PENDING"))
+                .thenReturn(Optional.of(pendingTransaction));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(invocation -> {
+            PaymentTransaction t = invocation.getArgument(0);
+            t.setTransactionTime(LocalDateTime.now());
+            return t;
+        });
+        when(invoiceService.issueInvoice(any(IssueInvoiceRequest.class)))
+                .thenReturn(InvoiceResult.builder()
+                        .invoiceId(1L)
+                        .invoiceNumber("AA-00000001")
+                        .status("ISSUED")
+                        .message("B2B 發票開立成功")
+                        .build());
+
+        // When
+        CheckoutResponse result = paymentService.checkout(request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getInvoice()).isNotNull();
+        assertThat(result.getInvoice().getStatus()).isEqualTo("ISSUED");
+
+        verify(invoiceService).issueInvoice(argThat(req ->
+                "B2B".equals(req.getInvoiceType()) &&
+                "12345678".equals(req.getBuyerIdentifier()) &&
+                "測試公司".equals(req.getBuyerName())
+        ));
     }
 }

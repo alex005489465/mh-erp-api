@@ -2,11 +2,15 @@ package com.morningharvest.erp.payment.service;
 
 import com.morningharvest.erp.common.event.EventPublisher;
 import com.morningharvest.erp.common.exception.ResourceNotFoundException;
+import com.morningharvest.erp.invoice.dto.InvoiceResult;
+import com.morningharvest.erp.invoice.dto.IssueInvoiceRequest;
+import com.morningharvest.erp.invoice.service.InvoiceService;
 import com.morningharvest.erp.order.dto.OrderDTO;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.repository.OrderRepository;
 import com.morningharvest.erp.payment.dto.CheckoutRequest;
 import com.morningharvest.erp.payment.dto.CheckoutResponse;
+import com.morningharvest.erp.payment.dto.InvoiceInfo;
 import com.morningharvest.erp.payment.dto.PaymentTransactionDTO;
 import com.morningharvest.erp.payment.entity.PaymentTransaction;
 import com.morningharvest.erp.payment.event.PaymentCompletedEvent;
@@ -27,6 +31,7 @@ public class PaymentService {
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final OrderRepository orderRepository;
     private final EventPublisher eventPublisher;
+    private final InvoiceService invoiceService;
 
     /**
      * 結帳付款（更新 PENDING 付款條目為 COMPLETED）
@@ -77,6 +82,9 @@ public class PaymentService {
                 "付款完成"
         );
 
+        // 8. 開立發票
+        InvoiceResult invoiceResult = issueInvoiceAfterPayment(request, saved);
+
         // 重新取得訂單（狀態可能已被事件監聽器更新，但因為是異步的，這裡可能還是舊狀態）
         Order updatedOrder = orderRepository.findById(order.getId()).orElse(order);
 
@@ -90,7 +98,42 @@ public class PaymentService {
                 .changeAmount(saved.getChangeAmount())
                 .transactionTime(saved.getTransactionTime())
                 .order(OrderDTO.from(updatedOrder))
+                .invoice(invoiceResult)
                 .build();
+    }
+
+    /**
+     * 付款完成後開立發票
+     */
+    private InvoiceResult issueInvoiceAfterPayment(CheckoutRequest request, PaymentTransaction transaction) {
+        // 取得發票資訊，若未提供則使用預設值
+        InvoiceInfo invoiceInfo = request.getInvoice();
+        if (invoiceInfo == null) {
+            invoiceInfo = InvoiceInfo.builder().build();
+        }
+
+        try {
+            IssueInvoiceRequest issueRequest = IssueInvoiceRequest.builder()
+                    .orderId(request.getOrderId())
+                    .paymentTransactionId(transaction.getId())
+                    .invoiceType(invoiceInfo.getInvoiceType() != null ? invoiceInfo.getInvoiceType() : "B2C")
+                    .issueType(invoiceInfo.getIssueType() != null ? invoiceInfo.getIssueType() : "ELECTRONIC")
+                    .buyerIdentifier(invoiceInfo.getBuyerIdentifier())
+                    .buyerName(invoiceInfo.getBuyerName())
+                    .carrierType(invoiceInfo.getCarrierType())
+                    .carrierValue(invoiceInfo.getCarrierValue())
+                    .isDonated(invoiceInfo.getIsDonated() != null ? invoiceInfo.getIsDonated() : false)
+                    .donateCode(invoiceInfo.getDonateCode())
+                    .build();
+
+            return invoiceService.issueInvoice(issueRequest);
+        } catch (Exception e) {
+            log.error("發票開立失敗, orderId: {}, error: {}", request.getOrderId(), e.getMessage(), e);
+            return InvoiceResult.builder()
+                    .status("FAILED")
+                    .message("發票開立失敗: " + e.getMessage())
+                    .build();
+        }
     }
 
     /**

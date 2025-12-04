@@ -37,3 +37,9 @@ databaseChangeLog:
       file: db/changelog/changes/018-add-order-cancel-fields.sql
   - include:
       file: db/changelog/changes/019-add-payment-cancel-fields.sql
+  - include:
+      file: db/changelog/changes/020-create-invoices-table.sql
+  - include:
+      file: db/changelog/changes/021-create-invoice-items-table.sql
+  - include:
+      file: db/changelog/changes/022-create-invoice-allowances-table.sql

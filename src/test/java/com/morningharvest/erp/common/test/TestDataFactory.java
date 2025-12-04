@@ -1,5 +1,8 @@
 package com.morningharvest.erp.common.test;
 
+import com.morningharvest.erp.invoice.dto.IssueInvoiceRequest;
+import com.morningharvest.erp.invoice.entity.Invoice;
+import com.morningharvest.erp.invoice.entity.InvoiceItem;
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.entity.SingleOrderItem;
@@ -9,6 +12,7 @@ import com.morningharvest.erp.product.entity.ProductOptionGroup;
 import com.morningharvest.erp.product.entity.ProductOptionValue;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 /**
  * 測試資料工廠類別
@@ -189,5 +193,83 @@ public final class TestDataFactory {
                 .groupName("加料")
                 .valueName("加蛋")
                 .priceAdjustment(new BigDecimal("15.00"));
+    }
+
+    // ===== Invoice =====
+
+    /**
+     * 建立預設的發票 Builder (B2C 電子發票)
+     * 預設值: invoiceType="B2C", issueType="ELECTRONIC", status="ISSUED"
+     */
+    public static Invoice.InvoiceBuilder defaultInvoice() {
+        return Invoice.builder()
+                .invoiceNumber("AA-00000001")
+                .invoiceDate(LocalDate.now())
+                .invoicePeriod("11312")
+                .invoiceType("B2C")
+                .issueType("ELECTRONIC")
+                .salesAmount(new BigDecimal("100.00"))
+                .taxAmount(new BigDecimal("5.00"))
+                .totalAmount(new BigDecimal("105.00"))
+                .status("ISSUED")
+                .isPrinted(false)
+                .printCount(0)
+                .isVoided(false)
+                .isDonated(false);
+    }
+
+    /**
+     * 建立已作廢的發票 Builder
+     */
+    public static Invoice.InvoiceBuilder voidedInvoice() {
+        return Invoice.builder()
+                .invoiceNumber("AA-00000002")
+                .invoiceDate(LocalDate.now())
+                .invoicePeriod("11312")
+                .invoiceType("B2C")
+                .issueType("ELECTRONIC")
+                .status("VOID")
+                .isVoided(true)
+                .voidReason("測試作廢");
+    }
+
+    // ===== InvoiceItem =====
+
+    /**
+     * 建立預設的發票明細 Builder
+     */
+    public static InvoiceItem.InvoiceItemBuilder defaultInvoiceItem() {
+        return InvoiceItem.builder()
+                .sequence(1)
+                .description("測試商品")
+                .quantity(new BigDecimal("1"))
+                .unitPrice(new BigDecimal("105.00"))
+                .amount(new BigDecimal("105.00"));
+    }
+
+    // ===== IssueInvoiceRequest =====
+
+    /**
+     * 建立預設的開立發票請求 Builder (B2C)
+     */
+    public static IssueInvoiceRequest.IssueInvoiceRequestBuilder defaultIssueInvoiceRequest() {
+        return IssueInvoiceRequest.builder()
+                .invoiceType("B2C")
+                .issueType("ELECTRONIC")
+                .carrierType("MOBILE_BARCODE")
+                .carrierValue("/ABC1234")
+                .isDonated(false);
+    }
+
+    /**
+     * 建立 B2B 開立發票請求 Builder
+     */
+    public static IssueInvoiceRequest.IssueInvoiceRequestBuilder b2bIssueInvoiceRequest() {
+        return IssueInvoiceRequest.builder()
+                .invoiceType("B2B")
+                .issueType("ELECTRONIC")
+                .buyerIdentifier("12345678")
+                .buyerName("測試公司")
+                .isDonated(false);
     }
 }
