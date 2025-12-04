@@ -325,6 +325,58 @@ public class InvoiceService {
                 .toList();
     }
 
+    // === POS 專用方法 (依訂單 ID 操作) ===
+
+    /**
+     * 依訂單作廢發票 (POS 用)
+     */
+    @Transactional
+    public InvoiceResult voidInvoiceByOrderId(Long orderId, String reason) {
+        log.info("依訂單作廢發票, orderId: {}, reason: {}", orderId, reason);
+
+        Invoice invoice = invoiceRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("找不到該訂單的發票: " + orderId));
+
+        VoidInvoiceRequest request = VoidInvoiceRequest.builder()
+                .invoiceId(invoice.getId())
+                .reason(reason)
+                .build();
+
+        return voidInvoice(request);
+    }
+
+    /**
+     * 依訂單開立折讓 (POS 用)
+     */
+    @Transactional
+    public InvoiceAllowanceDTO createAllowanceByOrderId(Long orderId, BigDecimal amount, String reason) {
+        log.info("依訂單開立折讓, orderId: {}, amount: {}, reason: {}", orderId, amount, reason);
+
+        Invoice invoice = invoiceRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("找不到該訂單的發票: " + orderId));
+
+        CreateAllowanceRequest request = CreateAllowanceRequest.builder()
+                .invoiceId(invoice.getId())
+                .amount(amount)
+                .reason(reason)
+                .build();
+
+        return createAllowance(request);
+    }
+
+    /**
+     * 依訂單記錄列印 (POS 用)
+     */
+    @Transactional
+    public InvoiceDTO recordPrintByOrderId(Long orderId) {
+        log.info("依訂單記錄發票列印, orderId: {}", orderId);
+
+        Invoice invoice = invoiceRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("找不到該訂單的發票: " + orderId));
+
+        return recordPrint(invoice.getId());
+    }
+
     // === 私有方法 ===
 
     private List<InvoiceItem> createInvoiceItems(Long invoiceId, List<OrderItem> orderItems) {

@@ -735,4 +735,133 @@ class InvoiceServiceTest {
 
         verify(invoiceAllowanceRepository).findByInvoiceIdOrderByIdDesc(999L);
     }
+
+    // ========== voidInvoiceByOrderId 測試 (POS) ==========
+
+    @Test
+    @DisplayName("依訂單作廢發票 - 成功")
+    void voidInvoiceByOrderId_Success() {
+        // Given
+        when(invoiceRepository.findByOrderId(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceRepository.findById(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceServiceClient.voidInvoice(any(VoidInvoiceExternalRequest.class)))
+                .thenReturn(VoidInvoiceExternalResponse.success());
+        when(invoiceRepository.save(any(Invoice.class))).thenReturn(testInvoice);
+
+        // When
+        InvoiceResult result = invoiceService.voidInvoiceByOrderId(1L, "POS 取消訂單");
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getInvoiceId()).isEqualTo(1L);
+        assertThat(result.getStatus()).isEqualTo("VOID");
+
+        verify(invoiceRepository).findByOrderId(1L);
+        verify(invoiceServiceClient).voidInvoice(any(VoidInvoiceExternalRequest.class));
+    }
+
+    @Test
+    @DisplayName("依訂單作廢發票 - 訂單無發票拋出例外")
+    void voidInvoiceByOrderId_InvoiceNotFound_ThrowsException() {
+        // Given
+        when(invoiceRepository.findByOrderId(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> invoiceService.voidInvoiceByOrderId(999L, "測試"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("找不到該訂單的發票");
+
+        verify(invoiceRepository).findByOrderId(999L);
+        verify(invoiceServiceClient, never()).voidInvoice(any());
+    }
+
+    // ========== createAllowanceByOrderId 測試 (POS) ==========
+
+    @Test
+    @DisplayName("依訂單開立折讓 - 成功")
+    void createAllowanceByOrderId_Success() {
+        // Given
+        when(invoiceRepository.findByOrderId(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceRepository.findById(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceAllowanceRepository.save(any(InvoiceAllowance.class))).thenAnswer(invocation -> {
+            InvoiceAllowance allowance = invocation.getArgument(0);
+            allowance.setId(1L);
+            return allowance;
+        });
+        when(invoiceServiceClient.createAllowance(any(AllowanceExternalRequest.class)))
+                .thenReturn(AllowanceExternalResponse.builder()
+                        .success(true)
+                        .allowanceNumber("AA-20000002")
+                        .allowanceDate(LocalDate.now())
+                        .externalId("mock-allowance-pos")
+                        .resultCode("SUCCESS")
+                        .resultMessage("Mock 折讓開立成功")
+                        .build());
+
+        // When
+        InvoiceAllowanceDTO result = invoiceService.createAllowanceByOrderId(1L, new BigDecimal("30.00"), "POS 部分退款");
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getInvoiceId()).isEqualTo(1L);
+        assertThat(result.getAllowanceNumber()).isEqualTo("AA-20000002");
+        assertThat(result.getStatus()).isEqualTo("ISSUED");
+
+        verify(invoiceRepository).findByOrderId(1L);
+        verify(invoiceServiceClient).createAllowance(any(AllowanceExternalRequest.class));
+    }
+
+    @Test
+    @DisplayName("依訂單開立折讓 - 訂單無發票拋出例外")
+    void createAllowanceByOrderId_InvoiceNotFound_ThrowsException() {
+        // Given
+        when(invoiceRepository.findByOrderId(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> invoiceService.createAllowanceByOrderId(999L, new BigDecimal("50.00"), "測試"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("找不到該訂單的發票");
+
+        verify(invoiceRepository).findByOrderId(999L);
+        verify(invoiceAllowanceRepository, never()).save(any());
+    }
+
+    // ========== recordPrintByOrderId 測試 (POS) ==========
+
+    @Test
+    @DisplayName("依訂單記錄列印 - 成功")
+    void recordPrintByOrderId_Success() {
+        // Given
+        when(invoiceRepository.findByOrderId(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceRepository.findById(1L)).thenReturn(Optional.of(testInvoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenReturn(testInvoice);
+        when(invoiceItemRepository.findByInvoiceIdOrderBySequenceAsc(1L)).thenReturn(List.of(testInvoiceItem));
+
+        // When
+        InvoiceDTO result = invoiceService.recordPrintByOrderId(1L);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(testInvoice.getIsPrinted()).isTrue();
+        assertThat(testInvoice.getPrintCount()).isEqualTo(1);
+
+        verify(invoiceRepository).findByOrderId(1L);
+        verify(invoiceRepository).save(any(Invoice.class));
+    }
+
+    @Test
+    @DisplayName("依訂單記錄列印 - 訂單無發票拋出例外")
+    void recordPrintByOrderId_InvoiceNotFound_ThrowsException() {
+        // Given
+        when(invoiceRepository.findByOrderId(999L)).thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> invoiceService.recordPrintByOrderId(999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("找不到該訂單的發票");
+
+        verify(invoiceRepository).findByOrderId(999L);
+        verify(invoiceRepository, never()).save(any());
+    }
 }
