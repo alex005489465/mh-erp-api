@@ -43,3 +43,5 @@ databaseChangeLog:
       file: db/changelog/changes/021-create-invoice-items-table.sql
   - include:
       file: db/changelog/changes/022-create-invoice-allowances-table.sql
+  - include:
+      file: db/changelog/changes/023-create-dining-tables-table.sql

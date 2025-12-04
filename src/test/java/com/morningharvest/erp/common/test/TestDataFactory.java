@@ -10,6 +10,8 @@ import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
 import com.morningharvest.erp.product.entity.ProductOptionGroup;
 import com.morningharvest.erp.product.entity.ProductOptionValue;
+import com.morningharvest.erp.table.constant.TableStatus;
+import com.morningharvest.erp.table.entity.DiningTable;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -271,5 +273,41 @@ public final class TestDataFactory {
                 .buyerIdentifier("12345678")
                 .buyerName("測試公司")
                 .isDonated(false);
+    }
+
+    // ===== DiningTable =====
+
+    /**
+     * 建立預設的桌位 Builder (空桌)
+     * 預設值: tableNumber="A1", capacity=4, status=AVAILABLE, isActive=true
+     */
+    public static DiningTable.DiningTableBuilder defaultTable() {
+        return DiningTable.builder()
+                .tableNumber("A1")
+                .capacity(4)
+                .status(TableStatus.AVAILABLE)
+                .isActive(true);
+    }
+
+    /**
+     * 建立佔用中的桌位 Builder
+     */
+    public static DiningTable.DiningTableBuilder occupiedTable() {
+        return DiningTable.builder()
+                .tableNumber("A2")
+                .capacity(4)
+                .status(TableStatus.OCCUPIED)
+                .isActive(true);
+    }
+
+    /**
+     * 建立停用的桌位 Builder
+     */
+    public static DiningTable.DiningTableBuilder inactiveTable() {
+        return DiningTable.builder()
+                .tableNumber("A3")
+                .capacity(4)
+                .status(TableStatus.AVAILABLE)
+                .isActive(false);
     }
 }
