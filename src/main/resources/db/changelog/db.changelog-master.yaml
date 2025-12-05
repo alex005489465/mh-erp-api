@@ -57,3 +57,5 @@ databaseChangeLog:
       file: db/changelog/changes/028-create-inventory-checks-table.sql
   - include:
       file: db/changelog/changes/029-create-inventory-check-items-table.sql
+  - include:
+      file: db/changelog/changes/030-create-product-recipes-table.sql

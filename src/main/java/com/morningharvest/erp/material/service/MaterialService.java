@@ -9,9 +9,11 @@ import com.morningharvest.erp.material.dto.CreateMaterialRequest;
 import com.morningharvest.erp.material.dto.MaterialDTO;
 import com.morningharvest.erp.material.dto.UpdateMaterialRequest;
 import com.morningharvest.erp.material.entity.Material;
+import com.morningharvest.erp.material.event.MaterialUpdatedEvent;
 import com.morningharvest.erp.material.repository.MaterialRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,7 @@ import java.util.Arrays;
 public class MaterialService {
 
     private final MaterialRepository materialRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public MaterialDTO createMaterial(CreateMaterialRequest request) {
@@ -77,6 +80,9 @@ public class MaterialService {
         Material material = materialRepository.findById(request.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("原物料不存在: " + request.getId()));
 
+        // 記錄更新前的狀態（用於事件發布）
+        MaterialDTO beforeDTO = toDTO(material);
+
         // 驗證編號不重複（排除自己）
         if (materialRepository.existsByCodeAndIdNot(request.getCode(), request.getId())) {
             throw new IllegalArgumentException("原物料編號已存在: " + request.getCode());
@@ -115,7 +121,12 @@ public class MaterialService {
         Material saved = materialRepository.save(material);
         log.info("原物料更新成功, id: {}", saved.getId());
 
-        return toDTO(saved);
+        MaterialDTO afterDTO = toDTO(saved);
+
+        // 發布原物料更新事件
+        eventPublisher.publishEvent(new MaterialUpdatedEvent(beforeDTO, afterDTO));
+
+        return afterDTO;
     }
 
     @Transactional

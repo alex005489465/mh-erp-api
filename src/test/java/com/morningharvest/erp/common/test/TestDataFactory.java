@@ -16,6 +16,7 @@ import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
 import com.morningharvest.erp.product.entity.ProductOptionGroup;
 import com.morningharvest.erp.product.entity.ProductOptionValue;
+import com.morningharvest.erp.product.entity.ProductRecipe;
 import com.morningharvest.erp.purchase.dto.CreatePurchaseItemRequest;
 import com.morningharvest.erp.purchase.dto.CreatePurchaseRequest;
 import com.morningharvest.erp.purchase.entity.Purchase;
@@ -533,5 +534,37 @@ public final class TestDataFactory {
                 .differenceQuantity(new BigDecimal("5.00"))
                 .differenceAmount(new BigDecimal("125.00"))
                 .isChecked(true);
+    }
+
+    // ===== ProductRecipe =====
+
+    /**
+     * 建立預設的商品配方 Builder
+     * 預設值: productId=1, materialId=1, quantity=1.0000, unit="PIECE"
+     */
+    public static ProductRecipe.ProductRecipeBuilder defaultProductRecipe() {
+        return ProductRecipe.builder()
+                .productId(1L)
+                .productName("測試商品")
+                .materialId(1L)
+                .materialCode("M001")
+                .materialName("測試原物料")
+                .quantity(new BigDecimal("1.0000"))
+                .unit("PIECE")
+                .note("測試備註");
+    }
+
+    /**
+     * 建立無備註的商品配方 Builder
+     */
+    public static ProductRecipe.ProductRecipeBuilder simpleProductRecipe() {
+        return ProductRecipe.builder()
+                .productId(1L)
+                .productName("測試商品")
+                .materialId(1L)
+                .materialCode("M001")
+                .materialName("測試原物料")
+                .quantity(new BigDecimal("0.5000"))
+                .unit("KILOGRAM");
     }
 }
