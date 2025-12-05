@@ -53,3 +53,7 @@ databaseChangeLog:
       file: db/changelog/changes/026-create-purchases-table.sql
   - include:
       file: db/changelog/changes/027-create-purchase-items-table.sql
+  - include:
+      file: db/changelog/changes/028-create-inventory-checks-table.sql
+  - include:
+      file: db/changelog/changes/029-create-inventory-check-items-table.sql

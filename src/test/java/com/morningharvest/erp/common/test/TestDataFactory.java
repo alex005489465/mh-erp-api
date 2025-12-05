@@ -1,5 +1,8 @@
 package com.morningharvest.erp.common.test;
 
+import com.morningharvest.erp.inventorycheck.constant.InventoryCheckStatus;
+import com.morningharvest.erp.inventorycheck.entity.InventoryCheck;
+import com.morningharvest.erp.inventorycheck.entity.InventoryCheckItem;
 import com.morningharvest.erp.invoice.dto.IssueInvoiceRequest;
 import com.morningharvest.erp.invoice.entity.Invoice;
 import com.morningharvest.erp.invoice.entity.InvoiceItem;
@@ -453,5 +456,82 @@ public final class TestDataFactory {
                 .materialId(1L)
                 .quantity(new BigDecimal("10.00"))
                 .unitPrice(new BigDecimal("100.00"));
+    }
+
+    // ===== InventoryCheck =====
+
+    /**
+     * 建立預設的盤點單 Builder (計畫中狀態)
+     * 預設值: checkNumber="IC-20251205-0001", status="PLANNED"
+     */
+    public static InventoryCheck.InventoryCheckBuilder defaultInventoryCheck() {
+        return InventoryCheck.builder()
+                .checkNumber("IC-20251205-0001")
+                .status(InventoryCheckStatus.PLANNED)
+                .checkDate(LocalDate.now())
+                .totalItems(0)
+                .totalDifferenceAmount(BigDecimal.ZERO);
+    }
+
+    /**
+     * 建立盤點中的盤點單 Builder
+     */
+    public static InventoryCheck.InventoryCheckBuilder inProgressInventoryCheck() {
+        return defaultInventoryCheck()
+                .status(InventoryCheckStatus.IN_PROGRESS)
+                .startedAt(LocalDateTime.now())
+                .startedBy("admin");
+    }
+
+    /**
+     * 建立已確認的盤點單 Builder
+     */
+    public static InventoryCheck.InventoryCheckBuilder confirmedInventoryCheck() {
+        return inProgressInventoryCheck()
+                .status(InventoryCheckStatus.CONFIRMED)
+                .confirmedAt(LocalDateTime.now())
+                .confirmedBy("admin");
+    }
+
+    // ===== InventoryCheckItem =====
+
+    /**
+     * 建立預設的盤點明細 Builder (未盤點)
+     * 預設值: systemQuantity=50.00, unitCost=25.00, isChecked=false
+     */
+    public static InventoryCheckItem.InventoryCheckItemBuilder defaultInventoryCheckItem() {
+        return InventoryCheckItem.builder()
+                .inventoryCheckId(1L)
+                .materialId(1L)
+                .materialCode("M001")
+                .materialName("測試原物料")
+                .materialUnit("PIECE")
+                .systemQuantity(new BigDecimal("50.00"))
+                .unitCost(new BigDecimal("25.00"))
+                .isChecked(false);
+    }
+
+    /**
+     * 建立已盤點的盤點明細 Builder (盤虧)
+     * 實際數量 48，系統數量 50，盤差 -2
+     */
+    public static InventoryCheckItem.InventoryCheckItemBuilder checkedInventoryCheckItem() {
+        return defaultInventoryCheckItem()
+                .actualQuantity(new BigDecimal("48.00"))
+                .differenceQuantity(new BigDecimal("-2.00"))
+                .differenceAmount(new BigDecimal("-50.00"))
+                .isChecked(true);
+    }
+
+    /**
+     * 建立已盤點的盤點明細 Builder (盤盈)
+     * 實際數量 55，系統數量 50，盤差 +5
+     */
+    public static InventoryCheckItem.InventoryCheckItemBuilder surplusInventoryCheckItem() {
+        return defaultInventoryCheckItem()
+                .actualQuantity(new BigDecimal("55.00"))
+                .differenceQuantity(new BigDecimal("5.00"))
+                .differenceAmount(new BigDecimal("125.00"))
+                .isChecked(true);
     }
 }

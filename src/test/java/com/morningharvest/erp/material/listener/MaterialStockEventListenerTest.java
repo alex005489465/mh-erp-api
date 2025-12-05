@@ -1,6 +1,7 @@
 package com.morningharvest.erp.material.listener;
 
 import com.morningharvest.erp.common.test.TestDataFactory;
+import com.morningharvest.erp.inventorycheck.event.InventoryCheckConfirmedEvent;
 import com.morningharvest.erp.material.entity.Material;
 import com.morningharvest.erp.material.repository.MaterialRepository;
 import com.morningharvest.erp.purchase.event.PurchaseConfirmedEvent;
@@ -185,6 +186,138 @@ class MaterialStockEventListenerTest {
 
         Material savedMaterial = captor.getValue();
         // null 視為 0，0 + 10 = 10
+        assertThat(savedMaterial.getCurrentStockQuantity()).isEqualByComparingTo(new BigDecimal("10.00"));
+    }
+
+    // ===== 盤點確認事件測試 =====
+
+    @Test
+    @DisplayName("盤點確認事件 - 調整庫存為實際數量")
+    void onInventoryCheckConfirmed_AdjustsStock() {
+        // Given
+        InventoryCheckConfirmedEvent.InventoryCheckItemInfo itemInfo =
+                new InventoryCheckConfirmedEvent.InventoryCheckItemInfo(
+                        1L, "M001", "測試原物料",
+                        new BigDecimal("50.00"),  // 系統數量
+                        new BigDecimal("48.00"),  // 實際數量
+                        new BigDecimal("-2.00")   // 盤差
+                );
+        InventoryCheckConfirmedEvent checkEvent = new InventoryCheckConfirmedEvent(
+                1L, "IC-20251205-0001", new BigDecimal("-50.00"), List.of(itemInfo)
+        );
+
+        when(materialRepository.findById(1L)).thenReturn(Optional.of(testMaterial));
+        when(materialRepository.save(any(Material.class))).thenReturn(testMaterial);
+
+        // When
+        listener.onInventoryCheckConfirmed(checkEvent);
+
+        // Then
+        ArgumentCaptor<Material> captor = ArgumentCaptor.forClass(Material.class);
+        verify(materialRepository).save(captor.capture());
+
+        Material savedMaterial = captor.getValue();
+        // 庫存應調整為實際盤點數量 48
+        assertThat(savedMaterial.getCurrentStockQuantity()).isEqualByComparingTo(new BigDecimal("48.00"));
+    }
+
+    @Test
+    @DisplayName("盤點確認事件 - 原物料不存在不拋出異常")
+    void onInventoryCheckConfirmed_MaterialNotFound_DoesNotThrow() {
+        // Given
+        InventoryCheckConfirmedEvent.InventoryCheckItemInfo itemInfo =
+                new InventoryCheckConfirmedEvent.InventoryCheckItemInfo(
+                        99L, "M999", "不存在的原物料",
+                        new BigDecimal("50.00"),
+                        new BigDecimal("48.00"),
+                        new BigDecimal("-2.00")
+                );
+        InventoryCheckConfirmedEvent checkEvent = new InventoryCheckConfirmedEvent(
+                1L, "IC-20251205-0001", new BigDecimal("-50.00"), List.of(itemInfo)
+        );
+
+        when(materialRepository.findById(99L)).thenReturn(Optional.empty());
+
+        // When - 不應拋出異常
+        listener.onInventoryCheckConfirmed(checkEvent);
+
+        // Then
+        verify(materialRepository).findById(99L);
+        verify(materialRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("盤點確認事件 - 多個明細項目")
+    void onInventoryCheckConfirmed_MultipleItems() {
+        // Given
+        Material material2 = TestDataFactory.defaultMaterial()
+                .id(2L)
+                .code("M002")
+                .name("第二個原物料")
+                .currentStockQuantity(new BigDecimal("30.00"))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        InventoryCheckConfirmedEvent.InventoryCheckItemInfo itemInfo1 =
+                new InventoryCheckConfirmedEvent.InventoryCheckItemInfo(
+                        1L, "M001", "測試原物料",
+                        new BigDecimal("50.00"), new BigDecimal("48.00"), new BigDecimal("-2.00")
+                );
+        InventoryCheckConfirmedEvent.InventoryCheckItemInfo itemInfo2 =
+                new InventoryCheckConfirmedEvent.InventoryCheckItemInfo(
+                        2L, "M002", "第二個原物料",
+                        new BigDecimal("30.00"), new BigDecimal("35.00"), new BigDecimal("5.00")
+                );
+        InventoryCheckConfirmedEvent checkEvent = new InventoryCheckConfirmedEvent(
+                1L, "IC-20251205-0001", new BigDecimal("75.00"), List.of(itemInfo1, itemInfo2)
+        );
+
+        when(materialRepository.findById(1L)).thenReturn(Optional.of(testMaterial));
+        when(materialRepository.findById(2L)).thenReturn(Optional.of(material2));
+        when(materialRepository.save(any(Material.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // When
+        listener.onInventoryCheckConfirmed(checkEvent);
+
+        // Then
+        verify(materialRepository, times(2)).save(any(Material.class));
+    }
+
+    @Test
+    @DisplayName("盤點確認事件 - 當前庫存為 null 時處理")
+    void onInventoryCheckConfirmed_NullCurrentStock() {
+        // Given
+        Material materialWithNullStock = TestDataFactory.defaultMaterial()
+                .id(1L)
+                .currentStockQuantity(null)  // null 庫存
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        InventoryCheckConfirmedEvent.InventoryCheckItemInfo itemInfo =
+                new InventoryCheckConfirmedEvent.InventoryCheckItemInfo(
+                        1L, "M001", "測試原物料",
+                        BigDecimal.ZERO,          // 系統數量視為 0
+                        new BigDecimal("10.00"),  // 實際數量
+                        new BigDecimal("10.00")   // 盤差
+                );
+        InventoryCheckConfirmedEvent checkEvent = new InventoryCheckConfirmedEvent(
+                1L, "IC-20251205-0001", new BigDecimal("250.00"), List.of(itemInfo)
+        );
+
+        when(materialRepository.findById(1L)).thenReturn(Optional.of(materialWithNullStock));
+        when(materialRepository.save(any(Material.class))).thenReturn(materialWithNullStock);
+
+        // When
+        listener.onInventoryCheckConfirmed(checkEvent);
+
+        // Then
+        ArgumentCaptor<Material> captor = ArgumentCaptor.forClass(Material.class);
+        verify(materialRepository).save(captor.capture());
+
+        Material savedMaterial = captor.getValue();
+        // 庫存應調整為實際盤點數量 10
         assertThat(savedMaterial.getCurrentStockQuantity()).isEqualByComparingTo(new BigDecimal("10.00"));
     }
 }
