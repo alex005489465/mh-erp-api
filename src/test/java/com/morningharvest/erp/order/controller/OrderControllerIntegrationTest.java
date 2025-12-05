@@ -20,6 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -264,5 +266,85 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.data.content").isArray());
+    }
+
+    // ========== 時間範圍查詢測試 ==========
+
+    @Test
+    @DisplayName("GET /api/orders/list - 時間範圍查詢")
+    void listOrders_FilterByDateRange() throws Exception {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(1);
+        LocalDateTime endTime = LocalDateTime.now().plusDays(1);
+
+        mockMvc.perform(get("/api/orders/list")
+                        .param("createdAtStart", startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("createdAtEnd", endTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalElements").value(4)); // 所有測試訂單都在範圍內
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/list - 時間範圍查詢 (無結果)")
+    void listOrders_FilterByDateRange_NoResult() throws Exception {
+        LocalDateTime startTime = LocalDateTime.now().minusYears(10);
+        LocalDateTime endTime = LocalDateTime.now().minusYears(9);
+
+        mockMvc.perform(get("/api/orders/list")
+                        .param("createdAtStart", startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("createdAtEnd", endTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/list - 時間範圍 + 狀態組合查詢")
+    void listOrders_FilterByDateRangeAndStatus() throws Exception {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(1);
+        LocalDateTime endTime = LocalDateTime.now().plusDays(1);
+
+        mockMvc.perform(get("/api/orders/list")
+                        .param("createdAtStart", startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("createdAtEnd", endTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("status", "DRAFT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].status").value("DRAFT"));
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/list - 時間範圍 + 類型組合查詢")
+    void listOrders_FilterByDateRangeAndOrderType() throws Exception {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(1);
+        LocalDateTime endTime = LocalDateTime.now().plusDays(1);
+
+        mockMvc.perform(get("/api/orders/list")
+                        .param("createdAtStart", startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("createdAtEnd", endTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("orderType", "TAKEOUT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].orderType").value("TAKEOUT"));
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/list - 時間範圍 + 狀態 + 類型組合查詢")
+    void listOrders_FilterByDateRangeAndStatusAndOrderType() throws Exception {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(1);
+        LocalDateTime endTime = LocalDateTime.now().plusDays(1);
+
+        mockMvc.perform(get("/api/orders/list")
+                        .param("createdAtStart", startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("createdAtEnd", endTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                        .param("status", "COMPLETED")
+                        .param("orderType", "TAKEOUT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.content[0].orderType").value("TAKEOUT"));
     }
 }

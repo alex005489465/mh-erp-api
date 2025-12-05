@@ -47,3 +47,5 @@ databaseChangeLog:
       file: db/changelog/changes/023-create-dining-tables-table.sql
   - include:
       file: db/changelog/changes/024-create-materials-table.sql
+  - include:
+      file: db/changelog/changes/025-create-suppliers-table.sql

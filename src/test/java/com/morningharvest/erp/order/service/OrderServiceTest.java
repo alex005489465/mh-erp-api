@@ -296,7 +296,7 @@ class OrderServiceTest {
         when(orderRepository.findAll(any(Pageable.class))).thenReturn(orderPage);
 
         // When
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, null, null);
+        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, null, null, null, null);
 
         // Then
         assertThat(result).isNotNull();
@@ -318,7 +318,7 @@ class OrderServiceTest {
         when(orderRepository.findByStatus(eq("DRAFT"), any(Pageable.class))).thenReturn(orderPage);
 
         // When
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, "DRAFT", null);
+        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, "DRAFT", null, null, null);
 
         // Then
         assertThat(result).isNotNull();

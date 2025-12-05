@@ -6,6 +6,8 @@ import com.morningharvest.erp.invoice.entity.InvoiceItem;
 import com.morningharvest.erp.material.constant.MaterialCategory;
 import com.morningharvest.erp.material.constant.MaterialUnit;
 import com.morningharvest.erp.material.entity.Material;
+import com.morningharvest.erp.supplier.constant.PaymentTerms;
+import com.morningharvest.erp.supplier.entity.Supplier;
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.entity.SingleOrderItem;
@@ -344,6 +346,42 @@ public final class TestDataFactory {
                 .safeStockQuantity(BigDecimal.ZERO)
                 .currentStockQuantity(BigDecimal.ZERO)
                 .costPrice(BigDecimal.ZERO)
+                .isActive(false);
+    }
+
+    // ===== Supplier =====
+
+    /**
+     * 建立預設的供應商 Builder
+     * 預設值: code="S001", name="測試供應商", paymentTerms="NET30", isActive=true
+     */
+    public static Supplier.SupplierBuilder defaultSupplier() {
+        return Supplier.builder()
+                .code("S001")
+                .name("測試供應商")
+                .shortName("測試")
+                .contactPerson("王小明")
+                .phone("02-12345678")
+                .mobile("0912-345678")
+                .email("test@example.com")
+                .taxId("12345678")
+                .address("台北市信義區測試路100號")
+                .paymentTerms(PaymentTerms.NET30)
+                .bankName("測試銀行")
+                .bankAccount("1234567890")
+                .isActive(true);
+    }
+
+    /**
+     * 建立停用的供應商 Builder
+     */
+    public static Supplier.SupplierBuilder inactiveSupplier() {
+        return Supplier.builder()
+                .code("S002")
+                .name("停用供應商")
+                .shortName("停用")
+                .contactPerson("李小華")
+                .paymentTerms(PaymentTerms.COD)
                 .isActive(false);
     }
 }

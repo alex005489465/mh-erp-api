@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -100,20 +101,40 @@ public class OrderService {
      * 查詢訂單列表（分頁）
      */
     @Transactional(readOnly = true)
-    public PageResponse<OrderDTO> listOrders(PageableRequest pageableRequest, String status, String orderType) {
-        log.debug("查詢訂單列表, page: {}, size: {}, status: {}, orderType: {}",
-                pageableRequest.getPage(), pageableRequest.getSize(), status, orderType);
+    public PageResponse<OrderDTO> listOrders(PageableRequest pageableRequest, String status, String orderType,
+                                              LocalDateTime createdAtStart, LocalDateTime createdAtEnd) {
+        log.debug("查詢訂單列表, page: {}, size: {}, status: {}, orderType: {}, createdAtStart: {}, createdAtEnd: {}",
+                pageableRequest.getPage(), pageableRequest.getSize(), status, orderType, createdAtStart, createdAtEnd);
 
         Page<Order> orderPage;
+        boolean hasDateRange = createdAtStart != null && createdAtEnd != null;
 
-        if (status != null && orderType != null) {
-            orderPage = orderRepository.findByStatusAndOrderType(status, orderType, pageableRequest.toPageable());
-        } else if (status != null) {
-            orderPage = orderRepository.findByStatus(status, pageableRequest.toPageable());
-        } else if (orderType != null) {
-            orderPage = orderRepository.findByOrderType(orderType, pageableRequest.toPageable());
+        if (hasDateRange) {
+            // 有時間範圍的查詢
+            if (status != null && orderType != null) {
+                orderPage = orderRepository.findByCreatedAtBetweenAndStatusAndOrderType(
+                        createdAtStart, createdAtEnd, status, orderType, pageableRequest.toPageable());
+            } else if (status != null) {
+                orderPage = orderRepository.findByCreatedAtBetweenAndStatus(
+                        createdAtStart, createdAtEnd, status, pageableRequest.toPageable());
+            } else if (orderType != null) {
+                orderPage = orderRepository.findByCreatedAtBetweenAndOrderType(
+                        createdAtStart, createdAtEnd, orderType, pageableRequest.toPageable());
+            } else {
+                orderPage = orderRepository.findByCreatedAtBetween(
+                        createdAtStart, createdAtEnd, pageableRequest.toPageable());
+            }
         } else {
-            orderPage = orderRepository.findAll(pageableRequest.toPageable());
+            // 無時間範圍的查詢（原有邏輯）
+            if (status != null && orderType != null) {
+                orderPage = orderRepository.findByStatusAndOrderType(status, orderType, pageableRequest.toPageable());
+            } else if (status != null) {
+                orderPage = orderRepository.findByStatus(status, pageableRequest.toPageable());
+            } else if (orderType != null) {
+                orderPage = orderRepository.findByOrderType(orderType, pageableRequest.toPageable());
+            } else {
+                orderPage = orderRepository.findAll(pageableRequest.toPageable());
+            }
         }
 
         Page<OrderDTO> dtoPage = orderPage.map(OrderDTO::from);

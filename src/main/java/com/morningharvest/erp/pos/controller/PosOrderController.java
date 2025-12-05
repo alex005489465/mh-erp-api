@@ -12,7 +12,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
 
 @Slf4j
 @RestController
@@ -106,7 +109,7 @@ public class PosOrderController {
     }
 
     @GetMapping("/list")
-    @Operation(summary = "查詢訂單列表", description = "分頁查詢 POS 訂單，預設查詢草稿訂單")
+    @Operation(summary = "查詢訂單列表", description = "分頁查詢 POS 訂單，可篩選狀態、類型和時間範圍")
     public ApiResponse<PageResponse<OrderDTO>> listOrders(
             @Parameter(description = "頁碼 (從 1 開始)", example = "1")
             @RequestParam(value = "page", defaultValue = "1") Integer page,
@@ -120,13 +123,22 @@ public class PosOrderController {
             @Parameter(description = "排序方向 (ASC/DESC)", example = "DESC")
             @RequestParam(value = "direction", defaultValue = "DESC") Sort.Direction direction,
 
-            @Parameter(description = "訂單狀態篩選 (DRAFT/COMPLETED)，預設 DRAFT")
-            @RequestParam(value = "status", defaultValue = "DRAFT") String status,
+            @Parameter(description = "訂單狀態篩選 (DRAFT/PENDING_PAYMENT/PAID/COMPLETED/CANCELLED)")
+            @RequestParam(value = "status", required = false) String status,
 
             @Parameter(description = "訂單類型篩選 (DINE_IN/TAKEOUT/DELIVERY)")
-            @RequestParam(value = "orderType", required = false) String orderType
+            @RequestParam(value = "orderType", required = false) String orderType,
+
+            @Parameter(description = "開始時間 (ISO 8601 格式)", example = "2025-12-01T00:00:00")
+            @RequestParam(value = "createdAtStart", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdAtStart,
+
+            @Parameter(description = "結束時間 (ISO 8601 格式)", example = "2025-12-31T23:59:59")
+            @RequestParam(value = "createdAtEnd", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdAtEnd
     ) {
-        log.debug("POS 查詢訂單列表, page: {}, size: {}, status: {}, orderType: {}", page, size, status, orderType);
+        log.debug("POS 查詢訂單列表, page: {}, size: {}, status: {}, orderType: {}, createdAtStart: {}, createdAtEnd: {}",
+                page, size, status, orderType, createdAtStart, createdAtEnd);
 
         PageableRequest pageableRequest = PageableRequest.builder()
                 .page(page)
@@ -135,7 +147,7 @@ public class PosOrderController {
                 .direction(direction)
                 .build();
 
-        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, status, orderType);
+        PageResponse<OrderDTO> result = orderService.listOrders(pageableRequest, status, orderType, createdAtStart, createdAtEnd);
         return ApiResponse.success(result);
     }
 }
