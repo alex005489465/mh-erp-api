@@ -49,3 +49,7 @@ databaseChangeLog:
       file: db/changelog/changes/024-create-materials-table.sql
   - include:
       file: db/changelog/changes/025-create-suppliers-table.sql
+  - include:
+      file: db/changelog/changes/026-create-purchases-table.sql
+  - include:
+      file: db/changelog/changes/027-create-purchase-items-table.sql

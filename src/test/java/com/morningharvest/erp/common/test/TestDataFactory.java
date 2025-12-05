@@ -6,8 +6,6 @@ import com.morningharvest.erp.invoice.entity.InvoiceItem;
 import com.morningharvest.erp.material.constant.MaterialCategory;
 import com.morningharvest.erp.material.constant.MaterialUnit;
 import com.morningharvest.erp.material.entity.Material;
-import com.morningharvest.erp.supplier.constant.PaymentTerms;
-import com.morningharvest.erp.supplier.entity.Supplier;
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.entity.SingleOrderItem;
@@ -15,11 +13,19 @@ import com.morningharvest.erp.product.entity.Product;
 import com.morningharvest.erp.product.entity.ProductCategory;
 import com.morningharvest.erp.product.entity.ProductOptionGroup;
 import com.morningharvest.erp.product.entity.ProductOptionValue;
+import com.morningharvest.erp.purchase.dto.CreatePurchaseItemRequest;
+import com.morningharvest.erp.purchase.dto.CreatePurchaseRequest;
+import com.morningharvest.erp.purchase.entity.Purchase;
+import com.morningharvest.erp.purchase.entity.PurchaseItem;
+import com.morningharvest.erp.supplier.constant.PaymentTerms;
+import com.morningharvest.erp.supplier.entity.Supplier;
 import com.morningharvest.erp.table.constant.TableStatus;
 import com.morningharvest.erp.table.entity.DiningTable;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 測試資料工廠類別
@@ -383,5 +389,69 @@ public final class TestDataFactory {
                 .contactPerson("李小華")
                 .paymentTerms(PaymentTerms.COD)
                 .isActive(false);
+    }
+
+    // ===== Purchase =====
+
+    /**
+     * 建立預設的進貨單 Builder (草稿狀態)
+     * 預設值: purchaseNumber="PO-20251205-0001", status="DRAFT"
+     */
+    public static Purchase.PurchaseBuilder defaultPurchase() {
+        return Purchase.builder()
+                .purchaseNumber("PO-20251205-0001")
+                .supplierId(1L)
+                .supplierName("測試供應商")
+                .status("DRAFT")
+                .totalAmount(new BigDecimal("1000.00"))
+                .purchaseDate(LocalDate.now());
+    }
+
+    /**
+     * 建立已確認的進貨單 Builder
+     */
+    public static Purchase.PurchaseBuilder confirmedPurchase() {
+        return defaultPurchase()
+                .status("CONFIRMED")
+                .confirmedAt(LocalDateTime.now())
+                .confirmedBy("admin");
+    }
+
+    // ===== PurchaseItem =====
+
+    /**
+     * 建立預設的進貨明細 Builder
+     */
+    public static PurchaseItem.PurchaseItemBuilder defaultPurchaseItem() {
+        return PurchaseItem.builder()
+                .materialId(1L)
+                .materialCode("M001")
+                .materialName("測試原物料")
+                .materialUnit("PIECE")
+                .quantity(new BigDecimal("10.00"))
+                .unitPrice(new BigDecimal("100.00"))
+                .subtotal(new BigDecimal("1000.00"));
+    }
+
+    // ===== CreatePurchaseRequest =====
+
+    /**
+     * 建立預設的進貨單建立請求 Builder
+     */
+    public static CreatePurchaseRequest.CreatePurchaseRequestBuilder defaultCreatePurchaseRequest() {
+        return CreatePurchaseRequest.builder()
+                .supplierId(1L)
+                .purchaseDate(LocalDate.now())
+                .items(List.of(defaultCreatePurchaseItemRequest().build()));
+    }
+
+    /**
+     * 建立預設的進貨明細建立請求 Builder
+     */
+    public static CreatePurchaseItemRequest.CreatePurchaseItemRequestBuilder defaultCreatePurchaseItemRequest() {
+        return CreatePurchaseItemRequest.builder()
+                .materialId(1L)
+                .quantity(new BigDecimal("10.00"))
+                .unitPrice(new BigDecimal("100.00"));
     }
 }
