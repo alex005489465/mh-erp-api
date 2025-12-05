@@ -3,6 +3,9 @@ package com.morningharvest.erp.common.test;
 import com.morningharvest.erp.invoice.dto.IssueInvoiceRequest;
 import com.morningharvest.erp.invoice.entity.Invoice;
 import com.morningharvest.erp.invoice.entity.InvoiceItem;
+import com.morningharvest.erp.material.constant.MaterialCategory;
+import com.morningharvest.erp.material.constant.MaterialUnit;
+import com.morningharvest.erp.material.entity.Material;
 import com.morningharvest.erp.order.dto.OrderItemOptionDTO;
 import com.morningharvest.erp.order.entity.Order;
 import com.morningharvest.erp.order.entity.SingleOrderItem;
@@ -308,6 +311,39 @@ public final class TestDataFactory {
                 .tableNumber("A3")
                 .capacity(4)
                 .status(TableStatus.AVAILABLE)
+                .isActive(false);
+    }
+
+    // ===== Material =====
+
+    /**
+     * 建立預設的原物料 Builder
+     * 預設值: code="M001", name="測試原物料", unit="PIECE", isActive=true
+     */
+    public static Material.MaterialBuilder defaultMaterial() {
+        return Material.builder()
+                .code("M001")
+                .name("測試原物料")
+                .unit(MaterialUnit.PIECE)
+                .category(MaterialCategory.OTHER)
+                .safeStockQuantity(BigDecimal.TEN)
+                .currentStockQuantity(new BigDecimal("50.00"))
+                .costPrice(new BigDecimal("25.00"))
+                .isActive(true);
+    }
+
+    /**
+     * 建立停用的原物料 Builder
+     */
+    public static Material.MaterialBuilder inactiveMaterial() {
+        return Material.builder()
+                .code("M002")
+                .name("停用原物料")
+                .unit(MaterialUnit.PACK)
+                .category(MaterialCategory.OTHER)
+                .safeStockQuantity(BigDecimal.ZERO)
+                .currentStockQuantity(BigDecimal.ZERO)
+                .costPrice(BigDecimal.ZERO)
                 .isActive(false);
     }
 }
